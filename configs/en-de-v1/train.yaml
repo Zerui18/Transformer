@@ -1,0 +1,15 @@
+learning_rate: 0.001
+autotune_learning_rate: true
+compile_model: true
+shuffle: true
+steps: 500000
+batch_size: 4
+autotune_batch_size: true
+gradient_accum_steps: 4
+sp_model: data/news-commentary-en-de-37000.model
+# training
+train_src_file: data/news-commentary-v12.en
+train_dst_file: data/news-commentary-v12.de
+# validation
+val_src_file: data/newstest2013.en
+val_dst_file: data/newstest2013.de
