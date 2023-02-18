@@ -183,14 +183,14 @@ class Decoder(nn.Module):
 		self.use_grad_ckpt = config.use_grad_ckpt
 	
 	def forward(self, src, tgt, src_mask, tgt_mask):
-		tgt = self.input_embeddings(tgt)
+		x = self.input_embeddings(tgt)
 		for block in self.blocks:
 			if self.use_grad_ckpt:
 				forward = lambda *inputs: block(*inputs)
-				tgt = checkpoint(forward, src, tgt, src_mask, tgt_mask, preserve_rng_state=False)
+				x = checkpoint(forward, src, x, src_mask, tgt_mask, preserve_rng_state=False)
 			else:
-				tgt = block(src, tgt, src_mask, tgt_mask)
-		return tgt
+				x = block(src, x, src_mask, tgt_mask)
+		return x
 
 class LMHead(nn.Module):
 
