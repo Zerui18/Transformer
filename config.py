@@ -11,7 +11,7 @@ class Decodable(object):
         else:
             return Decodable(value) if isinstance(value, dict) else value
 
-@dataclass(frozen=True)
+@dataclass
 class TransformerConfig:
     block_size: int
     vocab_size: int 
@@ -24,7 +24,7 @@ class TransformerConfig:
     use_grad_ckpt: bool
     teacher_forcing_ratio: float
 
-@dataclass(frozen=True)
+@dataclass
 class TrainingConfig:
     learning_rate: float 
     autotune_learning_rate: bool 
@@ -36,6 +36,6 @@ class TrainingConfig:
     gradient_accum_steps: int 
     sp_model: str
     train_src_file: str
-    train_dst_file: str
+    train_tgt_file: str
     val_src_file: str
-    val_dst_file: str
+    val_tgt_file: str

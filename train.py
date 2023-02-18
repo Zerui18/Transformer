@@ -5,10 +5,13 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from argparse import ArgumentParser
 import yaml
 from model_ln import TransformerModelLN
-from dataset import TranslationDataset
+from dataset import TranslationDataset, TranslationBatch
 from config import *
 from pathlib import Path
 
+GPU = torch.device('cuda')
+
+torch.autograd.set_detect_anomaly(True)
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
 pl.seed_everything(2023, workers=True)
@@ -33,10 +36,10 @@ def train(args):
 		train_config = TrainingConfig(**yaml.safe_load(f))
 	# init dataloaders
 	print('Init dataloaders...')
-	ds_train = TranslationDataset(train_config.train_src_file, train_config.train_dst_file, train_config.sp_model, model_config.block_size)
-	ds_val   = TranslationDataset(train_config.val_src_file, train_config.val_dst_file, train_config.sp_model, model_config.block_size)
-	dl_train = DataLoader(ds_train, train_config.batch_size, train_config.shuffle, num_workers=8, pin_memory=True, drop_last=True)
-	dl_val   = DataLoader(ds_val, train_config.batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=True)
+	ds_train = TranslationDataset(train_config.train_src_file, train_config.train_tgt_file, train_config.sp_model, model_config.block_size)
+	ds_val   = TranslationDataset(train_config.val_src_file, train_config.val_tgt_file, train_config.sp_model, model_config.block_size)
+	dl_train = DataLoader(ds_train, train_config.batch_size, train_config.shuffle, collate_fn=TranslationBatch.make_batch, num_workers=8, pin_memory=True, drop_last=True)
+	dl_val   = DataLoader(ds_val, train_config.batch_size, collate_fn=TranslationBatch.make_batch, num_workers=8, pin_memory=True, drop_last=True)
 	# auto-tuning
 	# if train_config.autotune_batch_size:
 	# 	print('Tuning batch size...')
@@ -72,7 +75,7 @@ def train(args):
 	experiments = Path('experiments')
 	experiments.mkdir(exist_ok=True)
 	exp_folder: Path = experiments / args.experiment_name
-	exp_folder.mkdir()
+	exp_folder.mkdir(exist_ok=True)
 	with open(exp_folder / 'train.yaml', 'w') as f:
 		yaml.dump(train_config, f)
 	with open(exp_folder / 'model.yaml', 'w') as f:

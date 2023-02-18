@@ -1,8 +1,9 @@
 import torch
-import torch.functional as F
+from torch.nn.functional import cross_entropy, softmax
 import pytorch_lightning as pl
 from model import TransformerModelAR, TransformerConfig
 from config import TrainingConfig
+from dataset import TranslationBatch, TranslationDataset
 
 class TransformerModelLN(pl.LightningModule):
 
@@ -17,30 +18,27 @@ class TransformerModelLN(pl.LightningModule):
         else:
             self.model = TransformerModelAR(model_config)
     
-    def forward(self, x):
+    def forward(self, *x):
         return self.model.forward(*x)
 
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        B, T = y.shape
-        y_pred = self(x)
-        loss = F.cross_entropy(y_pred.view(B * T, -1), y.view(B * T))
+    def training_step(self, batch: TranslationBatch, batch_idx: int):
+        B, T = batch.tgt.shape
+        y_pred = self(batch.src.cuda(), batch.tgt.cuda(), batch.src_mask.cuda(), batch.tgt_mask.cuda())
+        loss = cross_entropy(y_pred.view(B * T, -1), batch.tgt.cuda().view(B * T), ignore_index=TranslationDataset.PAD_IDX)
         self.log('train_loss', loss)
         return loss
 
-    def validation_step(self, batch, batch_idx):
-        x, y = batch
-        B, T = y.shape
-        y_pred = self(x)
-        loss = F.cross_entropy(y_pred.view(B * T, -1), y.view(B * T))
+    def validation_step(self, batch: TranslationBatch, batch_idx: int):
+        B, T = batch.tgt.shape
+        y_pred = self(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask)
+        loss = cross_entropy(y_pred.view(B * T, -1), batch.tgt.view(B * T), ignore_index=TranslationDataset.PAD_IDX)
         self.log('val_loss', loss)
         return loss
 
-    def test_step(self, batch, batch_idx):
-        x, y = batch
-        B, T = y.shape
-        y_pred = self(x)
-        loss = F.cross_entropy(y_pred.view(B * T, -1), y.view(B * T))
+    def test_step(self, batch: TranslationBatch, batch_idx: int):
+        B, T = batch.tgt.shape
+        y_pred = self(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask)
+        loss = cross_entropy(y_pred.view(B * T, -1), batch.tgt.view(B * T), ignore_index=TranslationDataset.PAD_IDX)
         self.log('test_loss', loss)
         return loss
     
@@ -72,7 +70,7 @@ class TransformerModelLN(pl.LightningModule):
             logits = self(x[:, -self.seq_len:])
             # focus only on the last time step
             logits = logits[:, -1, :] # becomes (B, C)
-            probs = F.softmax(logits, dim=-1)
+            probs = softmax(logits, dim=-1)
             # sample from the distribution
             idx_next = torch.multinomial(probs, num_samples=1) # (B, 1)
             # append sampled index to the running sequence
