@@ -4,7 +4,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from argparse import ArgumentParser
 import yaml
-from model_pl import TransformerModelLN
+from model_ln import TransformerModelLN
 from dataset import TranslationDataset
 from config import *
 from pathlib import Path
@@ -36,20 +36,20 @@ def train(args):
 	ds_train = TranslationDataset(train_config.train_src_file, train_config.train_dst_file, train_config.sp_model, model_config.block_size)
 	ds_val   = TranslationDataset(train_config.val_src_file, train_config.val_dst_file, train_config.sp_model, model_config.block_size)
 	dl_train = DataLoader(ds_train, train_config.batch_size, train_config.shuffle, num_workers=8, pin_memory=True, drop_last=True)
-	dl_val   = DataLoader(ds_val, train_config.batch_size, train_config.shuffle, num_workers=8, pin_memory=True, drop_last=True)
+	dl_val   = DataLoader(ds_val, train_config.batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=True)
 	# auto-tuning
-	if train_config.autotune_batch_size:
-		print('Tuning batch size...')
-		model = TransformerModelLN(model_config, train_config)
-		trainer = pl.Trainer(accelerator='gpu', devices=1, auto_scale_batch_size=True)
-		trainer.tune(model, dl_train, dl_val)
-		batch_size = model.batch_size
-		print('Found recommended batch size = ', batch_size)
-		train_config.batch_size = batch_size
-		del model, trainer, dl_train, dl_val
-		# reinit the dataloaders with the new batch size
-		dl_train = DataLoader(ds_train, batch_size, train_config.shuffle, num_workers=8, pin_memory=True, drop_last=True)
-		dl_val   = DataLoader(ds_val, batch_size, train_config.shuffle, num_workers=8, pin_memory=True, drop_last=True)
+	# if train_config.autotune_batch_size:
+	# 	print('Tuning batch size...')
+	# 	model = TransformerModelLN(model_config, train_config)
+	# 	trainer = pl.Trainer(accelerator='gpu', devices=1, auto_scale_batch_size=True)
+	# 	trainer.tune(model, dl_train, dl_val)
+	# 	batch_size = model.batch_size
+	# 	print('Found recommended batch size = ', batch_size)
+	# 	train_config.batch_size = batch_size
+	# 	del model, trainer, dl_train, dl_val
+	# 	# reinit the dataloaders with the new batch size
+	# 	dl_train = DataLoader(ds_train, batch_size, train_config.shuffle, num_workers=8, pin_memory=True, drop_last=True)
+	# 	dl_val   = DataLoader(ds_val, batch_size, train_config.shuffle, num_workers=8, pin_memory=True, drop_last=True)
 	if train_config.autotune_learning_rate:
 		print('Tuning learning rate...')
 		model = TransformerModelLN(model_config, train_config)
@@ -79,6 +79,7 @@ def train(args):
 		yaml.dump(model_config, f)
 	# init trainer
 	print('Begin training...')
+	model = TransformerModelLN(model_config, train_config)
 	val_loss_ckpt = ModelCheckpoint(
 		exp_folder, 
 		filename='model-{epoch:02d}-{val_loss:.2f}',
@@ -86,7 +87,7 @@ def train(args):
 		monitor='val_loss',
 		save_top_k=2)
 	trainer = pl.Trainer(accelerator='gpu', devices=1,
-			  max_steps=train_config.steps,
+			  max_steps=train_config.max_steps,
 			  accumulate_grad_batches=train_config.gradient_accum_steps,
 			  callbacks=[val_loss_ckpt])
 	trainer.fit(model, dl_train, dl_val)

@@ -79,6 +79,21 @@ class FeedFoward(nn.Module):
 	def forward(self, x):
 		return self.net(x)
 
+class InputEmbeddings(nn.Module):
+	''' Apply learnable token and position embeddings to input tokens. '''
+
+	def __init__(self, config: TransformerConfig):
+		super().__init__()
+		self.token_embedding_table = nn.Embedding(config.vocab_size, config.emb_dim)
+		self.position_embedding_table = nn.Embedding(config.block_size, config.emb_dim)
+		self.register_buffer('pos_emb_index', torch.arange(config.block_size))
+	
+	def forward(self, x):
+		B, T = x.shape
+		tok_embd = self.token_embedding_table(x)
+		pos_embd = self.position_embedding_table(self.pos_emb_index[:T])
+		return tok_embd + pos_embd
+
 class EncoderBlock(nn.Module):
 
 	def __init__(self, config: TransformerConfig):
@@ -89,6 +104,7 @@ class EncoderBlock(nn.Module):
 		self.ln2 = nn.LayerNorm(config.emb_dim)
 	
 	def forward(self, x):
+		print('hello', x.device)
 		# x + ... implements residual connections
 		x = x + self.sa_module(self.ln1(x))
 		x = x + self.fw_module(self.ln2(x))
@@ -98,10 +114,12 @@ class Encoder(nn.Module):
 
 	def __init__(self, config: TransformerConfig):
 		super().__init__()
+		self.input_embeddings = InputEmbeddings(config)
 		self.blocks = [EncoderBlock(config) for _ in range(config.n_blocks)]
 		self.use_grad_ckpt = config.use_grad_ckpt
 	
 	def forward(self, x):
+		x = self.input_embeddings(x)
 		for block in self.blocks:
 			if self.use_grad_ckpt:
 				forward = lambda *inputs: block(*inputs)
@@ -132,10 +150,12 @@ class Decoder(nn.Module):
 
 	def __init__(self, config: TransformerConfig):
 		super().__init__()
+		self.input_embeddings = InputEmbeddings(config)
 		self.blocks = [DecoderBlock(config) for _ in range(config.n_blocks)]
 		self.use_grad_ckpt = config.use_grad_ckpt
 	
 	def forward(self, out_encoder, x):
+		x = self.input_embeddings(x)
 		for block in self.blocks:
 			if self.use_grad_ckpt:
 				forward = lambda *inputs: block(*inputs)
@@ -156,29 +176,39 @@ class LMHead(nn.Module):
 		x = self.logits_head(x)
 		return x
 
-class TransformerModel(nn.Module):
+class TransformerModelAR(nn.Module):
 
 	def __init__(self, config: TransformerConfig):
 		super().__init__()
-		# embeddings
-		self.token_embedding_table = nn.Embedding(config.vocab_size, config.emb_dim)
-		self.position_embedding_table = nn.Embedding(config.block_size, config.emb_dim)
-		self.register_buffer('pos_emb_index', torch.arange(config.block_size))
+		self.config = config
 		# model parts
 		self.encoder = Encoder(config)
 		self.decoder = Decoder(config)
 		self.lm_head = LMHead(config)
 		# weight tying
 		if config.weight_tying:
-			self.token_embedding_table.weight = self.lm_head.logits_head.weight
-
-	def forward(self, x):
-		B, T = x.shape
-		tok_embd = self.token_embedding_table(x)
-		pos_embd = self.position_embedding_table(self.pos_emb_index[:T])
-		x = tok_embd + pos_embd
-		x = self.blocks(x)
-		x = self.ln(x)
-		logits = self.lm_head(x)
+			self.decoder.input_embeddings.token_embedding_table.weight = self.lm_head.logits_head.weight
+	
+	def forward(self, x_src, x_dst):
+		bs = x_src.size(0)
+		out_encoder = self.encoder(x_src)
+		# initialize the decoder output with zeros
+		history_out_decoder = torch.zeros((bs, self.config.block_size, self.config.emb_dim), dtype=torch.float32, device=x_src.device)
+		# initialize the decoder input with the <BOS> token
+		x_decoder = torch.zeros((bs, self.config.block_size), dtype=torch.long, device=x_src.device)
+		x_decoder[:, 0] = x_dst[:, :1]
+		# autoregressively generate the decoder output
+		# the first token (<BOS>) is already known
+		for t in range(1, self.config.block_size):
+			out_decoder = self.decoder(out_encoder, x_decoder)
+			logits = self.lm_head(out_decoder)
+			# update the decoder output history
+			history_out_decoder[:, t] = out_decoder[:, t]
+			# update x_decoder with either the ground truth or the predicted token
+			# with probability self.config.teacher_forcing_ratio
+			# avoid data-dependent control flow to prevent graph breaks
+			predicted_token = logits.argmax(dim=-1)
+			teacher_forcing_mask = (torch.rand(bs, device=x_src.device) < self.config.teacher_forcing_ratio).long()
+			x_decoder[t] += teacher_forcing_mask * x_dst[:, t] + (1 - teacher_forcing_mask) * predicted_token
 		return logits
 

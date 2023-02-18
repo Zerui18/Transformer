@@ -1,7 +1,7 @@
 import torch
 import torch.functional as F
 import pytorch_lightning as pl
-from model import TransformerModel, TransformerConfig
+from model import TransformerModelAR, TransformerConfig
 from config import TrainingConfig
 
 class TransformerModelLN(pl.LightningModule):
@@ -13,12 +13,12 @@ class TransformerModelLN(pl.LightningModule):
         self.learning_rate = training_config.learning_rate
         self.batch_size = training_config.batch_size
         if training_config.compile_model:
-            self.model = torch.compile(TransformerModel(model_config))
+            self.model = torch.compile(TransformerModelAR(model_config))
         else:
-            self.model = TransformerModel(model_config)
+            self.model = TransformerModelAR(model_config)
     
     def forward(self, x):
-        return self.model.forward(x)
+        return self.model.forward(*x)
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -52,7 +52,7 @@ class TransformerModelLN(pl.LightningModule):
         ''' Load a checkpoint containing a compiled model into inference mode. '''
         state_dict = torch.load(path)['state_dict']
         state_dict = { k.replace('._orig_mod', ''):v for k, v in state_dict.items() }
-        model = TransformerModel(config)
+        model = TransformerModelAR(config)
         model.load_state_dict(state_dict)
         model.eval()
         return model

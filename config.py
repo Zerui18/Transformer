@@ -22,6 +22,7 @@ class TransformerConfig:
     bias: bool 
     weight_tying: bool
     use_grad_ckpt: bool
+    teacher_forcing_ratio: float
 
 @dataclass(frozen=True)
 class TrainingConfig:
@@ -29,7 +30,7 @@ class TrainingConfig:
     autotune_learning_rate: bool 
     compile_model: bool
     shuffle: bool
-    steps: int 
+    max_steps: int 
     batch_size: int
     autotune_batch_size: bool
     gradient_accum_steps: int 

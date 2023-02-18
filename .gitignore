@@ -2,3 +2,4 @@
 data/*
 lightning_logs/
 experiments/
+.lr_find*

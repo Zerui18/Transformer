@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data import Dataset
 import sentencepiece as sp
-from tqdm import tqdm
+import torch.nn.functional as F
 import pandas as pd
 
 class TextGenerationDataset(Dataset):
@@ -37,26 +37,9 @@ class TranslationDataset(Dataset):
 		with open(train_dst_file) as f:
 			dst_lines = list(f)
 		self.df = pd.DataFrame({ 'src' : src_lines , 'dst' : dst_lines })
-		self.tokenizer = sp.SentencePieceProcessor(model_name=sp_model)
+		self.tokenizer = sp.SentencePieceProcessor(model_file=sp_model)
 		self.block_len = block_size
 
-	# @staticmethod
-	# def build_dataset(ds_name: str, train_src_file: str, train_dst_file: str, sp_model: str, block_len: int):
-	# 	print('Reading input files...')
-	# 	with open(train_src_file) as f:
-	# 		src_lines = list(f)
-	# 	with open(train_dst_file) as f:
-	# 		dst_lines = list(f)
-	# 	print('Tokenizing input files...')
-	# 	tokenizer = sp.SentencePieceProcessor(model_file=sp_model)
-	# 	src_lines = [tokenizer.encode(l) for l in tqdm(src_lines)]
-	# 	dst_lines = [tokenizer.encode(l) for l in tqdm(dst_lines)]
-	# 	print('Writing cached dataset...')
-	# 	df = pd.DataFrame({ 'src' : src_lines , 'dst' : dst_lines })
-	# 	df.to_pickle(f'{ds_name}.cache.p')
-	# 	print('Dataset cached as:', f'{ds_name}.cache.p')
-	# 	return TranslationDataset(df, block_len)
-	
 	def __len__(self):
 		return len(self.df)
 	
@@ -66,4 +49,16 @@ class TranslationDataset(Dataset):
 		# enable bpe dropout regularization
 		src = self.tokenizer.encode(src, enable_sampling=True, alpha=0.1, nbest_size=-1)
 		dst = self.tokenizer.encode(dst, enable_sampling=True, alpha=0.1, nbest_size=-1)
-		return torch.tensor(src), torch.tensor(dst)
+		# convert src, dst to tensors of block_len, apply clipping/padding if necessary
+		src = torch.tensor(src, dtype=torch.long)
+		dst = torch.tensor(dst, dtype=torch.long)
+		src_len, dst_len = src.shape[0], dst.shape[0]
+		if src_len > self.block_len:
+			src = src[:self.block_len]
+		elif src_len < self.block_len:
+			src = F.pad(src, pad=(0, self.block_len-src_len), mode='constant', value=3)
+		if dst_len > self.block_len:
+			dst = dst[:self.block_len]
+		elif dst_len < self.block_len:
+			dst = F.pad(dst, pad=(0, self.block_len-dst_len), mode='constant', value=3)
+		return (src, dst.clone()), dst
