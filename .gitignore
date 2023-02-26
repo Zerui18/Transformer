@@ -3,3 +3,4 @@ data/*
 lightning_logs/
 experiments/
 .lr_find*
+.ipynb_checkpoints/
