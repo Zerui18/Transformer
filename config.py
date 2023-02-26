@@ -22,7 +22,6 @@ class TransformerConfig:
     bias: bool 
     weight_tying: bool
     use_grad_ckpt: bool
-    teacher_forcing_ratio: float
 
 @dataclass
 class TrainingConfig:
@@ -32,7 +31,6 @@ class TrainingConfig:
     shuffle: bool
     max_steps: int 
     batch_size: int
-    autotune_batch_size: bool
     gradient_accum_steps: int 
     sp_model: str
     train_src_file: str

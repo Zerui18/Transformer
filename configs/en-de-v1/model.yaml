@@ -1,4 +1,4 @@
-block_size: 64
+block_size: 128
 vocab_size: 15000
 n_blocks: 6
 n_heads: 8 # Number of heads in multi-head attention, each head has dim = emb_dim/n_heads
@@ -7,4 +7,3 @@ dropout: 0.2 # Applies to: post-attention, post-linear
 bias: false # Applies to: qkv projections in attention layers
 weight_tying: true
 use_grad_ckpt: true
-teacher_forcing_ratio: 1

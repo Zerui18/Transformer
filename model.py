@@ -63,7 +63,7 @@ class MultiHeadSelfAttention(nn.Module):
 		mask = mask.unsqueeze(1) # apply mask over all heads
 		if self.is_causal:
 			mask = mask & self.causal_mask[:, :T, :T]
-		att_weights = att_weights.masked_fill(mask == 0, float('-inf'))
+		att_weights = att_weights.masked_fill(mask == 0, -1e9)
 		att_weights = F.softmax(att_weights, dim=-1)
 		y = att_weights @ v
 		# combine heads
@@ -103,7 +103,7 @@ class MultiHeadCrossAttention(nn.Module):
 		# compute attention
 		att_weights = (q @ k.transpose(-2, -1)) / self.scale
 		mask = mask.unsqueeze(1) # apply mask over all heads
-		att_weights = att_weights.masked_fill(mask == 0, float('-inf'))
+		att_weights = att_weights.masked_fill(mask == 0, -1e9)
 		att_weights = F.softmax(att_weights, dim=-1)
 		y = att_weights @ v
 		# combine heads
@@ -204,7 +204,7 @@ class LMHead(nn.Module):
 		x = self.logits_head(x)
 		return x
 
-class TransformerModelAR(nn.Module):
+class TransformerModel(nn.Module):
 
 	def __init__(self, config: TransformerConfig):
 		super().__init__()
@@ -218,41 +218,8 @@ class TransformerModelAR(nn.Module):
 			self.decoder.input_embeddings.token_embedding_table.weight = self.lm_head.logits_head.weight
 	
 	def forward(self, src, tgt, src_mask, tgt_mask):
-		''' Autoregressively generate the target sequence.
-		
-		The forward pass will step through range(1, block_size), predicting the next token at each step.
-		Teacher forcing with a random probability is used (ie. the next token is either the ground truth or the predicted token).
-		The entire generated sequence, in the form of logits, is returned.
-
-		TBD:
-		This approach doesn't really make sense:
-		At each step, the model is required (by cross-entropy) to output the exact same token as the ground truth.
-		However, the model's input at each step may not be the same as the ground truth up to that step due to teacher forcing with probability.
-		Hence, it's unrealistic to expect the model to output the exact same token as the ground truth and unreasonable to penalize the model for not doing so.
-		>> Instead, either set teacher forcing to always take effect, or use a different loss function that takes into account the model's input at each step.
-		>> The latter approach is probably better, but it's not clear how to implement it.
-		>> The next commit will implement the former approach + batching by similar sentence length.
-		>> This will allow for more efficient training (less wasted computation on padding tokens of unequal length sentences).
-		'''
-		bs = src.size(0)
-		out_encoder = self.encoder(src, src_mask)
-		# initialize the decoder output with zeros
-		history_logits = torch.zeros((bs, self.config.block_size, self.config.vocab_size), dtype=torch.float32, device=src.device)
-		# initialize the decoder input with the <BOS> token
-		x_decoder = torch.zeros((bs, self.config.block_size), dtype=torch.long, device=src.device)
-		x_decoder[:, 0] = tgt[:, 0]
-		# autoregressively generate the decoder output
-		# the first token (<BOS>) is already known
-		for t in range(1, self.config.block_size):
-			out_decoder = self.decoder(out_encoder, x_decoder.clone(), src_mask, tgt_mask)
-			logits = self.lm_head(out_decoder)
-			# update the decoder output history
-			history_logits[:, t] = logits[:, t]
-			# update x_decoder with either the ground truth or the predicted token
-			# with probability self.config.teacher_forcing_ratio
-			# avoid data-dependent control flow to prevent graph breaks
-			predicted_token = logits[:, -1].argmax(dim=-1)
-			teacher_forcing_mask = (torch.rand(bs, device=src.device) < self.config.teacher_forcing_ratio).long()
-			x_decoder[:, t] += teacher_forcing_mask * tgt[:, t] + (1 - teacher_forcing_mask) * predicted_token
-		return history_logits
+		enc = self.encoder(src, src_mask)
+		dec = self.decoder(enc, tgt, src_mask, tgt_mask)
+		logits = self.lm_head(dec)
+		return logits
 

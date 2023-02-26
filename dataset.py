@@ -38,14 +38,16 @@ class TranslationBatch:
 	@staticmethod
 	def make_batch(batch):
 		# batch is a list of tuples (src, tgt)
-		src, tgt = zip(*batch)
+		x, y_tgt = zip(*batch)
+		x_src, x_tgt = zip(*x)
 		# convert src & tgt to tensors
-		src = torch.stack(src)
-		tgt = torch.stack(tgt)
+		x_src = torch.stack(x_src)
+		x_tgt = torch.stack(x_tgt)
+		y_tgt = torch.stack(y_tgt)
 		# create src_mask & tgt_mask
-		src_mask = TranslationDataset.make_pad_mask(src)
-		tgt_mask = TranslationDataset.make_pad_mask(tgt)
-		return TranslationBatch(src, tgt, src_mask, tgt_mask)
+		x_src_mask = TranslationDataset.make_pad_mask(x_src)
+		x_tgt_mask = TranslationDataset.make_pad_mask(x_tgt)
+		return TranslationBatch(x_src, x_tgt, x_src_mask, x_tgt_mask)
 
 class TranslationDataset(Dataset):
 
@@ -72,23 +74,26 @@ class TranslationDataset(Dataset):
 		row = self.df.iloc[idx]
 		src, tgt = row.src, row.tgt
 		# enable bpe dropout regularization
-		src = [self.BOS_IDX] + self.tokenizer.encode(src, enable_sampling=True, alpha=0.1, nbest_size=-1) + [self.EOS_IDX]
-		tgt = [self.BOS_IDX] + self.tokenizer.encode(tgt, enable_sampling=True, alpha=0.1, nbest_size=-1) + [self.EOS_IDX]
+		x_src = self.tokenizer.encode(src, enable_sampling=True, alpha=0.1, nbest_size=-1)
+		x_tgt = self.tokenizer.encode(tgt, enable_sampling=True, alpha=0.1, nbest_size=-1)
 		# convert src, tgt to tensors of block_size
-		src = torch.tensor(src, dtype=torch.long)
-		tgt = torch.tensor(tgt, dtype=torch.long)
+		x_src = torch.tensor(x_src, dtype=torch.long)
+		x_tgt = torch.tensor(x_tgt, dtype=torch.long)
 		# apply clipping & padding to convert to block_size
-		src_len, tgt_len = src.shape[0], tgt.shape[0]
-		if src_len > self.block_size:
-			src = src[:self.block_size]
-		elif src_len < self.block_size:
-			src = F.pad(src, pad=(0, self.block_size-src_len), mode='constant', value=self.PAD_IDX)
-		if tgt_len > self.block_size:
-			tgt = tgt[:self.block_size]
-		elif tgt_len < self.block_size:
-			tgt = F.pad(tgt, pad=(0, self.block_size-tgt_len), mode='constant', value=self.PAD_IDX)
-		return src, tgt
+		x_src = self.pad_to_length(x_src, self.block_size)
+		x_tgt = self.pad_to_length(x_tgt, self.block_size - 1)
+		x_tgt = torch.concat((torch.tensor([TranslationDataset.BOS_IDX]), x_tgt))
+		y_tgt = self.pad_to_length(x_tgt, self.block_size - 1)
+		y_tgt = torch.concat((y_tgt, torch.tensor([TranslationDataset.EOS_IDX])))
+		return (x_src, x_tgt), y_tgt
 	
+	@staticmethod
+	def pad_to_length(x: torch.Tensor, length: int):
+		''' Clip or pad a tensor to a given length. '''
+		if x.shape[0] > length:
+			return x[:length]
+		return F.pad(x, pad=(0, length-x.shape[0]), mode='constant', value=TranslationDataset.PAD_IDX)
+
 	@staticmethod
 	def make_pad_mask(x):
 		return (x != TranslationDataset.PAD_IDX).unsqueeze(1) # (B, 1, T)
