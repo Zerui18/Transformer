@@ -3,9 +3,9 @@ autotune_learning_rate: true
 compile_model: false
 shuffle: true
 max_steps: 500000
-batch_size: 256
-gradient_accum_steps: 4
-sp_model: data/multi30k/model-15000.model
+batch_size: 512
+gradient_accum_steps: 2
+sp_model: data/multi30k/m_en_de.model
 # training
 train_src_file: data/multi30k/train.en
 train_tgt_file: data/multi30k/train.de

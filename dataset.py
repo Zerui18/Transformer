@@ -13,7 +13,7 @@ class TextGenerationDataset(Dataset):
 		self.block_size = block_size
 		print('Initializing Dataset')
 		print(f'Reading {file}...')
-		with open(file) as f:
+		with open(file, encoding='utf8') as f:
 			self._raw_text = f.read()
 		print('Tokenizing text...')
 		tokenizer = tokenizer or (lambda x:x)
@@ -59,9 +59,9 @@ class TranslationDataset(Dataset):
 	def __init__(self, train_src_file: str, train_tgt_file: str, sp_model: str, block_size: int):
 		super().__init__()
 		print('Reading input files...')
-		with open(train_src_file) as f:
+		with open(train_src_file, encoding='utf8') as f:
 			src_lines = list(f)
-		with open(train_tgt_file) as f:
+		with open(train_tgt_file, encoding='utf8') as f:
 			tgt_lines = list(f)
 		self.df = pd.DataFrame({ 'src' : src_lines , 'tgt' : tgt_lines })
 		self.tokenizer = sp.SentencePieceProcessor(model_file=sp_model)
