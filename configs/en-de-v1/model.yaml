@@ -1,4 +1,4 @@
-block_size: 128
+block_size: 64
 vocab_size: 15000
 n_blocks: 6
 n_heads: 8 # Number of heads in multi-head attention, each head has dim = emb_dim/n_heads

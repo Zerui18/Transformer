@@ -3,7 +3,7 @@ autotune_learning_rate: true
 compile_model: false
 shuffle: true
 max_steps: 500000
-batch_size: 512
+batch_size: 128
 gradient_accum_steps: 2
 sp_model: data/multi30k/m_en_de.model
 # training

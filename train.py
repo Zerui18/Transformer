@@ -29,21 +29,31 @@ def init_experiment(exp_name: str):
 	experiments = Path('experiments')
 	experiments.mkdir(exist_ok=True)
 	exp_folder: Path = experiments / exp_name
+	# if already resuming from a checkpoint, return the experiment folder
+	if RESUMING_FROM_CKPT:
+		return exp_folder
+	# else check if experiment folder already exists
 	if exp_folder.exists():
 		print('Experiment folder already exists!')
-		checkpoints = list(exp_folder.glob('model-*.ckpt'))
-		if len(checkpoints) > 0:
-			# print existing checkpoints and resume from chosen checkpoint
-			print('Existing checkpoints:')
-			for i, ckpt in enumerate(checkpoints):
-				print(f'{i}: {ckpt.name}')
-			choice = int(input('Enter checkpoint number to resume from: '))
-			ckpt = checkpoints[choice]
-			RESUMING_FROM_CKPT = ckpt
-			print(f'Resuming from {ckpt.name}...')
+		choose_resume_ckpt(exp_folder)
 	else:
 		exp_folder.mkdir()
 	return exp_folder
+
+def choose_resume_ckpt(exp_folder: Path):
+	global RESUMING_FROM_CKPT
+	checkpoints = list(exp_folder.glob('model-*.ckpt'))
+	if len(checkpoints) > 0:
+		# print existing checkpoints and resume from chosen checkpoint
+		print('Existing checkpoints:')
+		for i, ckpt in enumerate(checkpoints):
+			print(f'{i}: {ckpt.name}')
+		choice = int(input('Enter checkpoint number to resume from: '))
+		ckpt = checkpoints[choice]
+		RESUMING_FROM_CKPT = ckpt
+		return ckpt
+	else:
+		return None
 
 def init_trainer(train_config: TrainingConfig, exp_folder: Path):
 	# init callbacks
@@ -66,22 +76,39 @@ def init_trainer(train_config: TrainingConfig, exp_folder: Path):
 			  track_grad_norm=True)
 	return trainer
 
+def train_resume(args):
+	experiments = Path('experiments')
+	experiments.mkdir(exist_ok=True)
+	exp_folder = experiments / args.experiment_name
+	if ckpt := choose_resume_ckpt(exp_folder):
+		print(f'Resuming from {ckpt.name}...')
+		args.model_config = ckpt.parent / 'model.yaml'
+		args.train_config = ckpt.parent / 'train.yaml'
+		train(args)
+	else:
+		print('No checkpoints found!')
+
 def train(args):
 	# load configs
 	with open(args.model_config) as f:
-		model_config = TransformerConfig(**yaml.safe_load(f))
+		model_config = yaml.load(f, Loader=yaml.Loader)
+		if type(model_config) is dict:
+			model_config = TransformerConfig(**model_config)
 	with open(args.train_config) as f:
-		train_config = TrainingConfig(**yaml.safe_load(f))
+		train_config = yaml.load(f, Loader=yaml.Loader)
+		if type(train_config) is dict:
+			train_config = TrainingConfig(**train_config)
 	# init dataloaders
 	dl_train, dl_val = init_dataloaders(train_config, model_config.block_size)
 	# init model
 	model = TransformerModelStockLN(model_config, train_config)
+	model.train()
 	# ensure exp_folder
 	exp_folder = init_experiment(args.experiment_name)
 	# init trainer
 	trainer = init_trainer(train_config, exp_folder)
 	# autotune lr (doesn't work with compile=True currently)
-	if( RESUMING_FROM_CKPT is None) and train_config.autotune_learning_rate:
+	if(RESUMING_FROM_CKPT is None) and train_config.autotune_learning_rate:
 		print('Tuning learning rate...')
 		trainer.tune(model, dl_train, dl_val)
 		lr = model.learning_rate

@@ -80,11 +80,12 @@ class TranslationDataset(Dataset):
 		x_src = torch.tensor(x_src, dtype=torch.long)
 		x_tgt = torch.tensor(x_tgt, dtype=torch.long)
 		# apply clipping & padding to convert to block_size
+		x_src = torch.concat((torch.tensor([TranslationDataset.BOS_IDX]), x_src, torch.tensor([TranslationDataset.EOS_IDX])))
 		x_src = self.pad_to_length(x_src, self.block_size)
-		x_tgt = self.pad_to_length(x_tgt, self.block_size - 1)
+		y_tgt = torch.concat((x_tgt, torch.tensor([TranslationDataset.EOS_IDX])))
+		y_tgt = self.pad_to_length(y_tgt, self.block_size - 1)
 		x_tgt = torch.concat((torch.tensor([TranslationDataset.BOS_IDX]), x_tgt))
-		y_tgt = self.pad_to_length(x_tgt, self.block_size - 1)
-		y_tgt = torch.concat((y_tgt, torch.tensor([TranslationDataset.EOS_IDX])))
+		x_tgt = self.pad_to_length(x_tgt, self.block_size - 1)
 		return (x_src, x_tgt), y_tgt
 	
 	@staticmethod

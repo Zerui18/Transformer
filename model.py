@@ -322,8 +322,10 @@ class TransformerModelStockLN(pl.LightningModule):
 	def forward(self, src: Tensor, tgt: Tensor, src_mask: Tensor, tgt_mask: Tensor):
 		src_emb = self.input_embeddings(src)
 		tgt_emb = self.input_embeddings(tgt)
-		src_mask = src_mask.unsqueeze(2)
-		tgt_mask = tgt_mask.unsqueeze(2)
+		if True:
+			# for compatibility with the custom transformer
+			src_mask = src_mask.squeeze(1)
+			tgt_mask = tgt_mask.squeeze(1)
 		emb = self.transformer(src_emb, tgt_emb, src_key_padding_mask = src_mask, tgt_key_padding_mask = tgt_mask)
 		logits = self.lm_head(emb)
 		return logits
@@ -365,26 +367,35 @@ class TransformerModelStockLN(pl.LightningModule):
 	def configure_optimizers(self):
 		return torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
 
-	def translate(self, src: str, max_new_tokens: int):
-		src = torch.tensor(self.tokenizer.encode(src), dtype=torch.long, device=self.device).unsqueeze(0)
-		src_mask = (src != TranslationDataset.PAD_IDX).view(1, 1, -1)
-		gen_ids = self._generate(src, src_mask, max_new_tokens).squeeze(0).cpu().numpy()
-		return self.tokenizer.decode([int(i) for i in gen_ids])
-
 	@torch.inference_mode()
-	def _generate(self, src: Tensor, src_mask: Tensor, max_new_tokens: int):
+	def translate(self, src: str, temperature: float = 1.0, max_new_tokens: int = 1000):
+		''' Generator function that translates a source sentence into a target sentence.'''
 		# put self into eval mode
 		self.eval()
-		for _ in range(max_new_tokens):
+		# init inputs
+		src = torch.tensor(self.tokenizer.encode(src), dtype=torch.long, device=self.device).unsqueeze(0) # (1, T)
+		tgt = torch.tensor([TranslationDataset.BOS_IDX], dtype=torch.long, device=self.device).unsqueeze(0) # (1, 1)
+		# src_mask = torch.ones_like(src, dtype=torch.bool, device=self.device)
+		for i in range(max_new_tokens):
+			# update tgt mask
+			# tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
 			# get the predictions
-			logits = self(x[:, -self.seq_len:])
+			logits = self(src[:, -self.model_config.block_size:], tgt[:, -self.model_config.block_size:], None, None) # (1, T, C)
 			# focus only on the last time step
-			logits = logits[:, -1, :] # becomes (B, C)
+			logits = logits[:, -1, :] #(1, C)
+			logits /= temperature
 			probs = F.softmax(logits, dim=-1)
 			# sample from the distribution
-			idx_next = torch.multinomial(probs, num_samples=1) # (B, 1)
+			idx_next = torch.argmax(probs, dim=-1, keepdim=True) # (1, 1)
 			# append sampled index to the running sequence
-			x = torch.cat((x, idx_next), dim=1) # (B, T)
-		# return self to train mode
-		self.train()
-		return x
+			tgt = torch.cat((tgt, idx_next), dim=1) # (1, T)
+			# yield the current token
+			token = self.tokenizer.decode([int(idx_next[0].cpu().numpy())])
+			# print(f'{i}:', idx_next[0], token)
+			yield f'{idx_next[0]}: {token} \n'
+			# if len(token) > 0:
+			# 	yield token
+			# stop if the last token is the EOS token
+			if idx_next[0] == TranslationDataset.EOS_IDX:
+				break
+		return self.tokenizer.decode([int(t) for t in tgt[0].cpu().numpy()])
