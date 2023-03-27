@@ -5,28 +5,19 @@ from torch.utils.checkpoint import checkpoint
 from torch import Tensor
 from typing import *
 import pytorch_lightning as pl
-from config import TrainingConfig, TransformerConfig
+import math
 from dataset import TranslationBatch, TranslationDataset
-import sentencepiece as sp
-
-GPU = torch.device('cuda')
-
-@torch.jit.script
-def new_gelu(x: Tensor):
-	"""
-	Implementation of the GELU activation function currently in Google BERT repo (identical to OpenAI GPT).
-	Reference: Gaussian Error Linear Units (GELU) paper: https://arxiv.org/abs/1606.08415
-	"""
-	return 0.5 * x * (1.0 + torch.tanh(torch.sqrt(2.0 / torch.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
+from config import TransformerConfig, TrainingConfig
 
 class InputEmbeddings(nn.Module):
 	''' Apply learnable token and position embeddings to input tokens. '''
 
-	def __init__(self, config: TransformerConfig):
+	def __init__(self, config: TransformerConfig, is_src = True):
 		super().__init__()
-		self.token_embedding_table = nn.Embedding(config.vocab_size, config.emb_dim)
-		self.position_embedding_table = nn.Embedding(config.block_size, config.emb_dim)
-		self.register_buffer('pos_emb_index', torch.arange(config.block_size))
+		vocab_size = config.src_vocab_size if is_src else config.tgt_vocab_size
+		self.token_embedding_table = nn.Embedding(vocab_size, config.emb_dim)
+		self.position_embedding_table = nn.Embedding(config.max_len, config.emb_dim)
+		self.register_buffer('pos_emb_index', torch.arange(config.max_len))
 	
 	def forward(self, x: Tensor):
 		B, T = x.shape
@@ -40,8 +31,11 @@ class MultiHeadSelfAttention(nn.Module):
 	Implements a somewhat optimized version of the self attention by combining the q, k, v projections.
 	
 	Inputs:
-		x: input tensor of shape (B, T, C)
-		mask: mask tensor of shape broadcastable to (B, T, T)
+		`x`: Tensor<Float>[B, T, C] input tensor.
+		`tok_mask`: Tensor<Bool>[B, T] per-token mask applied to the `x`, false is masked out, true is preserved - masks both keys and queries.
+
+	Outputs:
+		Tensor<Float>[B, T, C] output tensor.
 	'''
 
 	def __init__(self, config: TransformerConfig, is_causal: bool = False):
@@ -49,13 +43,16 @@ class MultiHeadSelfAttention(nn.Module):
 		self.is_causal = is_causal
 		self.n_heads = config.n_heads
 		self.emb_dim = config.emb_dim
+		self.attn_dropout = nn.Dropout(config.dropout)
+		self.resid_dropout = nn.Dropout(config.dropout)
 		# combine q, k, v projections for efficiency
 		self.qkv_projection = nn.Linear(config.emb_dim, 3 * config.emb_dim, bias=config.bias)
-		self.register_buffer('scale', torch.tensor(config.emb_dim ** -0.5, dtype=torch.float32))
-		if is_causal:
-			self.register_buffer('causal_mask', torch.tril(torch.ones(1, config.block_size, config.block_size, dtype=torch.bool)))
+		# output projection
+		self.c_proj = nn.Linear(config.emb_dim, config.emb_dim, bias=config.bias)
+		if self.is_causal:
+			self.register_buffer('causal_mask', torch.tril(torch.ones(config.max_len, config.max_len, dtype=torch.bool)))
 
-	def forward(self, x: Tensor, mask: Tensor):
+	def forward(self, x: Tensor, tok_mask: Tensor):
 		B, T, C = x.shape
 		# proj q, k, v for all heads
 		# the heads are treated as a batch dimension
@@ -64,15 +61,17 @@ class MultiHeadSelfAttention(nn.Module):
 		k = k.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
 		v = v.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
 		# compute attention
-		att_weights = (q @ k.transpose(-2, -1)) / self.scale
-		mask = mask.unsqueeze(1) # apply mask over all heads
+		att_weights = (q @ k.transpose(-2, -1)) / math.sqrt(k.size(-1))
+		mask = tok_mask.view(B, 1, 1, T) # (B, 1, 1, T) <=> (B, nh, T, T)
 		if self.is_causal:
-			mask = mask & self.causal_mask[:, :T, :T]
+			mask = mask & self.causal_mask[None, None, :T, :T]
 		att_weights = att_weights.masked_fill(mask == 0, -1e9)
 		att_weights = F.softmax(att_weights, dim=-1)
+		att_weights = self.attn_dropout(att_weights)
 		y = att_weights @ v
 		# combine heads
 		y = y.transpose(1, 2).contiguous().view(B, T, C)
+		y = self.resid_dropout(self.c_proj(y))
 		return y
 
 class MultiHeadCrossAttention(nn.Module):
@@ -81,38 +80,51 @@ class MultiHeadCrossAttention(nn.Module):
 	Implements a somewhat optimized version of the cross attention by combining the k, v projections.
 	
 	Inputs:
-		x_q: query tensor of shape (B, T, C)
-		x_kv: key and value tensor of shape (B, T, C)
-		mask: mask tensor of shape broadcastable to (B, T, T)
+		`x_q`: Tensor<Float>[B, T_q, C] query input tensor.
+		`x_kv`: Tensor<Float>[B, T_kv, C] key and value input tensor.
+		`q_tok_mask`: Tensor<Bool>[B, T_q] mask applied to the `x_q`, false is masked out, true is preserved - applies to q only.
+		`kv_tok_mask`: Tensor<Bool>[B, T_kv] mask applied to the `x_kv`, false is masked out, true is preserved - applies to k and v.
+
+	Outputs:
+		Tensor<Float>[B, T_q, C] output tensor.
 	'''
 
 	def __init__(self, config: TransformerConfig):
 		super().__init__()
 		self.n_heads = config.n_heads
 		self.emb_dim = config.emb_dim
+		self.attn_dropout = nn.Dropout(config.dropout)
+		self.resid_dropout = nn.Dropout(config.dropout)
 		self.q_projection = nn.Linear(config.emb_dim, config.emb_dim, bias=config.bias)
 		# combine k, v projections for efficiency
 		self.kv_projection = nn.Linear(config.emb_dim, 2 * config.emb_dim, bias=config.bias)
-		self.register_buffer('scale', torch.tensor(config.emb_dim ** -0.5, dtype=torch.float32))
+		# output projection
+		self.c_proj = nn.Linear(config.emb_dim, config.emb_dim, bias=config.bias)
 
-	def forward(self, x_q: Tensor, x_kv: Tensor, mask: Tensor):
+	def forward(self, x_q: Tensor, x_kv: Tensor, q_tok_mask: Tensor, kv_tok_mask: Tensor):
 		# proj query for all heads
-		B, T, C = x_q.shape
+		B, T_q, C = x_q.shape
 		q = self.q_projection(x_q)
-		q = q.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
+		q = q.view(B, T_q, self.n_heads, C // self.n_heads).transpose(1, 2)
 		# proj key & value for all heads
-		B, T, C = x_kv.shape
+		B, T_kv, C = x_kv.shape
 		k, v = self.kv_projection(x_kv).split(self.emb_dim, dim=2)
-		k = k.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
-		v = v.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
+		k = k.view(B, T_kv, self.n_heads, C // self.n_heads).transpose(1, 2)
+		v = v.view(B, T_kv, self.n_heads, C // self.n_heads).transpose(1, 2)
 		# compute attention
-		att_weights = (q @ k.transpose(-2, -1)) / self.scale
-		mask = mask.unsqueeze(1) # apply mask over all heads
-		att_weights = att_weights.masked_fill(mask == 0, -1e9)
+		att_weights = (q @ k.transpose(-2, -1)) / math.sqrt(k.size(-1))
+		# merge masks
+		q_tok_mask = q_tok_mask.unsqueeze(2) # (N, T_q, 1)
+		kv_tok_mask = kv_tok_mask.unsqueeze(1) # (N, 1, T_kv)
+		attn_mask = q_tok_mask & kv_tok_mask
+		# apply mask
+		att_weights = att_weights.masked_fill(attn_mask.unsqueeze(1) == 0, -1e9)
 		att_weights = F.softmax(att_weights, dim=-1)
+		att_weights = self.attn_dropout(att_weights)
 		y = att_weights @ v
 		# combine heads
-		y = y.transpose(1, 2).contiguous().view(B, T, C)
+		y = y.transpose(1, 2).contiguous().view(B, T_q, C)
+		y = self.resid_dropout(self.c_proj(y))
 		return y
 
 class FeedFoward(nn.Module):
@@ -121,7 +133,7 @@ class FeedFoward(nn.Module):
 		super().__init__()
 		self.net = nn.Sequential(
 			nn.Linear(config.emb_dim, 4 * config.emb_dim),
-			nn.ReLU(),
+			nn.GELU(approximate='tanh'),
 			nn.Linear(4 * config.emb_dim, config.emb_dim),
 		)
 		if config.dropout:
@@ -175,7 +187,7 @@ class DecoderBlock(nn.Module):
 	
 	def forward(self, src: Tensor, tgt: Tensor, src_mask: Tensor, tgt_mask: Tensor):
 		x = tgt + self.sa_module(self.ln1(tgt), tgt_mask)
-		x = x + self.ca_module(self.ln2(src), self.ln2(tgt), src_mask)
+		x = x + self.ca_module(self.ln2(tgt), self.ln2(src), tgt_mask, src_mask)
 		x = x + self.fw_module(self.ln3(x))
 		return x
 
@@ -202,28 +214,30 @@ class LMHead(nn.Module):
 	def __init__(self, config: TransformerConfig):
 		super().__init__()
 		self.ln = nn.LayerNorm(config.emb_dim)
-		self.logits_head = nn.Linear(config.emb_dim, config.vocab_size)
+		self.logits_head = nn.Linear(config.emb_dim, config.tgt_vocab_size)
 	
 	def forward(self, x: Tensor):
 		x = self.ln(x)
 		x = self.logits_head(x)
 		return x
 
+import pytorch_lightning as pl
+
 class TransformerModelLN(pl.LightningModule):
 
 	def __init__(self, model_config: TransformerConfig, training_config: TrainingConfig):
 		super().__init__()
 		self.save_hyperparameters()
-		self.tokenizer = sp.SentencePieceProcessor(model_file=training_config.sp_model)
+		# self.tokenizer = sp.SentencePieceProcessor(model_file=training_config.sp_model)
 		self.model_config = model_config
 		self.learning_rate = training_config.learning_rate
 		self.batch_size = training_config.batch_size
 		self.criterion = nn.CrossEntropyLoss(ignore_index=TranslationDataset.PAD_IDX)
 		# setup sample input for tracing
-		self.example_input_array = (torch.zeros(1, model_config.block_size, dtype=torch.long),
-			      					torch.zeros(1, model_config.block_size, dtype=torch.long),
-									torch.zeros(1, 1, model_config.block_size, dtype=torch.long),
-									torch.zeros(1, 1, model_config.block_size, dtype=torch.long))
+		self.example_input_array = (torch.zeros(1, model_config.max_len, dtype=torch.long),
+			      					torch.zeros(1, model_config.max_len, dtype=torch.long),
+									torch.zeros(1, 1, model_config.max_len, dtype=torch.long),
+									torch.zeros(1, 1, model_config.max_len, dtype=torch.long))
 		# model parts
 		self.encoder = Encoder(model_config)
 		self.decoder = Decoder(model_config)
@@ -232,16 +246,16 @@ class TransformerModelLN(pl.LightningModule):
 		if model_config.weight_tying:
 			self.decoder.input_embeddings.token_embedding_table.weight = self.lm_head.logits_head.weight
 
-	def forward(self, src: Tensor, tgt: Tensor, src_mask: Tensor, tgt_mask: Tensor):
-		enc = self.encoder(src, src_mask)
-		dec = self.decoder(enc, tgt, src_mask, tgt_mask)
+	def forward(self, src: Tensor, tgt: Tensor, src_tok_mask: Tensor, tgt_tok_mask: Tensor):
+		enc = self.encoder(src, src_tok_mask)
+		dec = self.decoder(enc, tgt, src_tok_mask, tgt_tok_mask)
 		logits = self.lm_head(dec)
 		return logits
-
+	
 	def calculate_loss(self, y_pred: Tensor, y_true: Tensor, prefix: str):
 		''' Calculate and log loss for a batch of predictions.'''
 		B, T = y_true.shape
-		loss = self.criterion(y_pred.view(B * T, -1), y_true.view(B * T))
+		loss = self.criterion(y_pred.view(B * T, -1), y_true.reshape(B * T))
 		# log the loss
 		self.log(f'{prefix}_loss', loss)
 		return loss
@@ -251,122 +265,32 @@ class TransformerModelLN(pl.LightningModule):
 		B, T = y_true.shape
 		# flatten the tensors
 		y_pred = y_pred.view(B * T, -1).argmax(dim=-1)
-		y_true = y_true.view(B * T)
+		y_true = y_true.reshape(B * T)
 		# calculate the metrics
 		accuracy = (y_pred == y_true).float().mean()
 		# log the metrics
 		self.log(f'{prefix}_accuracy', accuracy)
 
 	def training_step(self, batch: TranslationBatch, batch_idx: int):
-		y_pred = self(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask)
-		self.calculate_metrics(y_pred, batch.tgt, 'train')
-		return self.calculate_loss(y_pred, batch.tgt, 'train')
+		# opt = self.optimizer
+		# opt.zero_grad()
+		y_pred = self(batch.x_src, batch.x_tgt, batch.x_src_mask, batch.x_tgt_mask)
+		self.calculate_metrics(y_pred, batch.y_tgt, 'train')
+		return self.calculate_loss(y_pred, batch.y_tgt, 'train')
 
 	def validation_step(self, batch: TranslationBatch, batch_idx: int):
-		y_pred = self(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask)
-		self.calculate_metrics(y_pred, batch.tgt, 'val')
-		return self.calculate_loss(y_pred, batch.tgt, 'val')
+		y_pred = self(batch.x_src, batch.x_tgt, batch.x_src_mask, batch.x_tgt_mask)
+		self.calculate_metrics(y_pred, batch.y_tgt, 'val')
+		return self.calculate_loss(y_pred, batch.y_tgt, 'val')
 
 	def test_step(self, batch: TranslationBatch, batch_idx: int):
-		y_pred = self(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask)
-		self.calculate_metrics(y_pred, batch.tgt, 'test')
-		return self.calculate_loss(y_pred, batch.tgt, 'test')
+		y_pred = self(batch.x_src, batch.x_tgt, batch.x_src_mask, batch.x_tgt_mask)
+		self.calculate_metrics(y_pred, batch.y_tgt, 'test')
+		return self.calculate_loss(y_pred, batch.y_tgt, 'test')
 
 	def configure_optimizers(self):
 		return torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
-
-	def translate(self, src: str, max_new_tokens: int):
-		src = torch.tensor(self.tokenizer.encode(src), dtype=torch.long, device=self.device).unsqueeze(0)
-		src_mask = (src != TranslationDataset.PAD_IDX).view(1, 1, -1)
-		gen_ids = self._generate(src, src_mask, max_new_tokens).squeeze(0).cpu().numpy()
-		return self.tokenizer.decode([int(i) for i in gen_ids])
-
-	@torch.inference_mode()
-	def _generate(self, src: Tensor, src_mask: Tensor, max_new_tokens: int):
-		# put self into eval mode
-		self.eval()
-		for _ in range(max_new_tokens):
-			# get the predictions
-			logits = self(x[:, -self.seq_len:])
-			# focus only on the last time step
-			logits = logits[:, -1, :] # becomes (B, C)
-			probs = F.softmax(logits, dim=-1)
-			# sample from the distribution
-			idx_next = torch.multinomial(probs, num_samples=1) # (B, 1)
-			# append sampled index to the running sequence
-			x = torch.cat((x, idx_next), dim=1) # (B, T)
-		# return self to train mode
-		self.train()
-		return x
-
-from torch.nn import Transformer
-
-class TransformerModelStockLN(pl.LightningModule):
-
-	def __init__(self, model_config: TransformerConfig, training_config: TrainingConfig):
-		super().__init__()
-		self.save_hyperparameters()
-		self.tokenizer = sp.SentencePieceProcessor(model_file=training_config.sp_model)
-		self.model_config = model_config
-		self.learning_rate = training_config.learning_rate
-		self.batch_size = training_config.batch_size
-		self.criterion = nn.CrossEntropyLoss(ignore_index=TranslationDataset.PAD_IDX)
-		# model parts
-		self.input_embeddings = InputEmbeddings(model_config)
-		self.transformer = Transformer(d_model=model_config.emb_dim, nhead=model_config.n_heads,
-				 						num_encoder_layers=model_config.n_blocks, num_decoder_layers=model_config.n_blocks,
-										dim_feedforward=model_config.emb_dim * 4, dropout=model_config.dropout,
-										activation='gelu', batch_first=True, norm_first=True)
-		self.lm_head = LMHead(model_config)
-
-	def forward(self, src: Tensor, tgt: Tensor, src_mask: Tensor, tgt_mask: Tensor):
-		src_emb = self.input_embeddings(src)
-		tgt_emb = self.input_embeddings(tgt)
-		if True:
-			# for compatibility with the custom transformer
-			src_mask = src_mask.squeeze(1)
-			tgt_mask = tgt_mask.squeeze(1)
-		emb = self.transformer(src_emb, tgt_emb, src_key_padding_mask = src_mask, tgt_key_padding_mask = tgt_mask)
-		logits = self.lm_head(emb)
-		return logits
-
-	def calculate_loss(self, y_pred: Tensor, y_true: Tensor, prefix: str):
-		''' Calculate and log loss for a batch of predictions.'''
-		B, T = y_true.shape
-		loss = self.criterion(y_pred.view(B * T, -1), y_true.view(B * T))
-		# log the loss
-		self.log(f'{prefix}_loss', loss)
-		return loss
-
-	def calculate_metrics(self, y_pred: Tensor, y_true: Tensor, prefix: str):
-		''' Calculate and log [accuracy] for a batch of predictions.'''
-		B, T = y_true.shape
-		# flatten the tensors
-		y_pred = y_pred.view(B * T, -1).argmax(dim=-1)
-		y_true = y_true.view(B * T)
-		# calculate the metrics
-		accuracy = (y_pred == y_true).float().mean()
-		# log the metrics
-		self.log(f'{prefix}_accuracy', accuracy)
-
-	def training_step(self, batch: TranslationBatch, batch_idx: int):
-		y_pred = self(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask)
-		self.calculate_metrics(y_pred, batch.tgt, 'train')
-		return self.calculate_loss(y_pred, batch.tgt, 'train')
-
-	def validation_step(self, batch: TranslationBatch, batch_idx: int):
-		y_pred = self(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask)
-		self.calculate_metrics(y_pred, batch.tgt, 'val')
-		return self.calculate_loss(y_pred, batch.tgt, 'val')
-
-	def test_step(self, batch: TranslationBatch, batch_idx: int):
-		y_pred = self(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask)
-		self.calculate_metrics(y_pred, batch.tgt, 'test')
-		return self.calculate_loss(y_pred, batch.tgt, 'test')
-
-	def configure_optimizers(self):
-		return torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
-
+	
 	@torch.inference_mode()
 	def translate(self, src: str, temperature: float = 1.0, max_new_tokens: int = 1000):
 		''' Generator function that translates a source sentence into a target sentence.'''
@@ -375,12 +299,12 @@ class TransformerModelStockLN(pl.LightningModule):
 		# init inputs
 		src = torch.tensor(self.tokenizer.encode(src), dtype=torch.long, device=self.device).unsqueeze(0) # (1, T)
 		tgt = torch.tensor([TranslationDataset.BOS_IDX], dtype=torch.long, device=self.device).unsqueeze(0) # (1, 1)
-		# src_mask = torch.ones_like(src, dtype=torch.bool, device=self.device)
+		src_mask = torch.ones_like(src, dtype=torch.bool, device=self.device)
 		for i in range(max_new_tokens):
 			# update tgt mask
-			# tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
+			tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
 			# get the predictions
-			logits = self(src[:, -self.model_config.block_size:], tgt[:, -self.model_config.block_size:], None, None) # (1, T, C)
+			logits = self(src[:, -self.model_config.max_len:], tgt[:, -self.model_config.max_len:], src_mask, tgt_mask) # (1, T, C)
 			# focus only on the last time step
 			logits = logits[:, -1, :] #(1, C)
 			logits /= temperature

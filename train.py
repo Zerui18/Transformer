@@ -5,23 +5,25 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from pathlib import Path
 import yaml
-from model import TransformerModelLN, TransformerModelStockLN
+from model import TransformerModelLN
 from dataset import TranslationDataset, TranslationBatch
 from config import TransformerConfig, TrainingConfig
+from alt_dataloader import make_data_loaders
 
 GPU = torch.device('cuda')
 RESUMING_FROM_CKPT = None
 
 torch.autograd.set_detect_anomaly(True) # detect backward NaN
 torch.set_float32_matmul_precision('high') # allow tf32
-pl.seed_everything(2023, workers=True) # static seed
+# pl.seed_everything(2023, workers=True) # static seed
 
-def init_dataloaders(train_config: TrainingConfig, block_size: int):
+def init_dataloaders(train_config: TrainingConfig):
 	print('Init dataloaders...')
-	ds_train = TranslationDataset(train_config.train_src_file, train_config.train_tgt_file, train_config.sp_model, block_size)
-	ds_val   = TranslationDataset(train_config.val_src_file, train_config.val_tgt_file, train_config.sp_model, block_size)
+	ds_train = TranslationDataset(train_config.train_src_file, train_config.train_tgt_file, train_config.sp_model)
+	ds_val   = TranslationDataset(train_config.val_src_file, train_config.val_tgt_file, train_config.sp_model)
 	dl_train = DataLoader(ds_train, train_config.batch_size, train_config.shuffle, collate_fn=TranslationBatch.make_batch, num_workers=8, pin_memory=True, drop_last=True)
 	dl_val   = DataLoader(ds_val, train_config.batch_size, collate_fn=TranslationBatch.make_batch, num_workers=8, pin_memory=True, drop_last=True)
+	# return make_data_loaders(train_config.batch_size)
 	return dl_train, dl_val
 
 def init_experiment(exp_name: str):
@@ -69,7 +71,7 @@ def init_trainer(train_config: TrainingConfig, exp_folder: Path):
 	trainer = pl.Trainer(accelerator='gpu', devices=1,
 			  max_steps=train_config.max_steps,
 			  accumulate_grad_batches=train_config.gradient_accum_steps,
-			  gradient_clip_val=1,
+			#   gradient_clip_val=1,
 			  callbacks=[val_loss_ckpt],
 			  log_every_n_steps=1,
 			  logger=logger,
@@ -89,6 +91,7 @@ def train_resume(args):
 		print('No checkpoints found!')
 
 def train(args):
+	global RESUMING_FROM_CKPT
 	# load configs
 	with open(args.model_config) as f:
 		model_config = yaml.load(f, Loader=yaml.Loader)
@@ -99,10 +102,9 @@ def train(args):
 		if type(train_config) is dict:
 			train_config = TrainingConfig(**train_config)
 	# init dataloaders
-	dl_train, dl_val = init_dataloaders(train_config, model_config.block_size)
+	dl_train, dl_val = init_dataloaders(train_config)
 	# init model
-	model = TransformerModelStockLN(model_config, train_config)
-	model.train()
+	model = TransformerModelLN(model_config, train_config)
 	# ensure exp_folder
 	exp_folder = init_experiment(args.experiment_name)
 	# init trainer
@@ -131,3 +133,4 @@ def train(args):
 	# init trainer
 	print('Begin training...')
 	trainer.fit(model, dl_train, dl_val, ckpt_path=RESUMING_FROM_CKPT)
+	print('Training complete!')

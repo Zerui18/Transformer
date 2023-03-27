@@ -1,9 +1,9 @@
-from dataclasses import dataclass
 import torch
 from torch.utils.data import Dataset
+from torch.nn.utils.rnn import pad_sequence
 import sentencepiece as sp
-import torch.nn.functional as F
 import pandas as pd
+from dataclasses import dataclass
 
 class TextGenerationDataset(Dataset):
 
@@ -30,24 +30,24 @@ class TextGenerationDataset(Dataset):
 
 @dataclass
 class TranslationBatch:
-	src: torch.Tensor
-	tgt: torch.Tensor
-	src_mask: torch.Tensor
-	tgt_mask: torch.Tensor
+	x_src: torch.Tensor
+	x_tgt: torch.Tensor
+	x_src_mask: torch.Tensor
+	x_tgt_mask: torch.Tensor
+	y_tgt: torch.Tensor
 
 	@staticmethod
 	def make_batch(batch):
 		# batch is a list of tuples (src, tgt)
-		x, y_tgt = zip(*batch)
-		x_src, x_tgt = zip(*x)
+		x_src, x_tgt, y_tgt = zip(*batch)
 		# convert src & tgt to tensors
-		x_src = torch.stack(x_src)
-		x_tgt = torch.stack(x_tgt)
-		y_tgt = torch.stack(y_tgt)
+		x_src = pad_sequence(x_src, batch_first=True, padding_value=TranslationDataset.PAD_IDX)
+		x_tgt = pad_sequence(x_tgt, batch_first=True, padding_value=TranslationDataset.PAD_IDX)
+		y_tgt = pad_sequence(y_tgt, batch_first=True, padding_value=TranslationDataset.PAD_IDX)
 		# create src_mask & tgt_mask
-		x_src_mask = TranslationDataset.make_pad_mask(x_src)
-		x_tgt_mask = TranslationDataset.make_pad_mask(x_tgt)
-		return TranslationBatch(x_src, x_tgt, x_src_mask, x_tgt_mask)
+		x_src_tok_mask = TranslationDataset.make_pad_mask(x_src)
+		x_tgt_tok_mask = TranslationDataset.make_pad_mask(x_tgt)
+		return TranslationBatch(x_src, x_tgt, x_src_tok_mask, x_tgt_tok_mask, y_tgt)
 
 class TranslationDataset(Dataset):
 
@@ -56,7 +56,7 @@ class TranslationDataset(Dataset):
 	EOS_IDX = 2
 	PAD_IDX = 3
 
-	def __init__(self, train_src_file: str, train_tgt_file: str, sp_model: str, block_size: int):
+	def __init__(self, train_src_file: str, train_tgt_file: str, sp_model: str):
 		super().__init__()
 		print('Reading input files...')
 		with open(train_src_file, encoding='utf8') as f:
@@ -65,7 +65,6 @@ class TranslationDataset(Dataset):
 			tgt_lines = list(f)
 		self.df = pd.DataFrame({ 'src' : src_lines , 'tgt' : tgt_lines })
 		self.tokenizer = sp.SentencePieceProcessor(model_file=sp_model)
-		self.block_size = block_size
 
 	def __len__(self):
 		return len(self.df)
@@ -74,27 +73,14 @@ class TranslationDataset(Dataset):
 		row = self.df.iloc[idx]
 		src, tgt = row.src, row.tgt
 		# enable bpe dropout regularization
-		x_src = self.tokenizer.encode(src, enable_sampling=True, alpha=0.1, nbest_size=-1)
-		x_tgt = self.tokenizer.encode(tgt, enable_sampling=True, alpha=0.1, nbest_size=-1)
-		# convert src, tgt to tensors of block_size
-		x_src = torch.tensor(x_src, dtype=torch.long)
-		x_tgt = torch.tensor(x_tgt, dtype=torch.long)
-		# apply clipping & padding to convert to block_size
-		x_src = torch.concat((torch.tensor([TranslationDataset.BOS_IDX]), x_src, torch.tensor([TranslationDataset.EOS_IDX])))
-		x_src = self.pad_to_length(x_src, self.block_size)
-		y_tgt = torch.concat((x_tgt, torch.tensor([TranslationDataset.EOS_IDX])))
-		y_tgt = self.pad_to_length(y_tgt, self.block_size - 1)
-		x_tgt = torch.concat((torch.tensor([TranslationDataset.BOS_IDX]), x_tgt))
-		x_tgt = self.pad_to_length(x_tgt, self.block_size - 1)
-		return (x_src, x_tgt), y_tgt
-	
-	@staticmethod
-	def pad_to_length(x: torch.Tensor, length: int):
-		''' Clip or pad a tensor to a given length. '''
-		if x.shape[0] > length:
-			return x[:length]
-		return F.pad(x, pad=(0, length-x.shape[0]), mode='constant', value=TranslationDataset.PAD_IDX)
+		x = self.tokenizer.encode(src, enable_sampling=True, alpha=0.1, nbest_size=-1)
+		y = self.tokenizer.encode(tgt, enable_sampling=True, alpha=0.1, nbest_size=-1)
+		# create src & tgt tensors
+		x_src = torch.tensor([TranslationDataset.BOS_IDX] + x + [TranslationDataset.EOS_IDX], dtype=torch.long)
+		x_tgt = torch.tensor([TranslationDataset.BOS_IDX] + y[:-1], dtype=torch.long)
+		y_tgt = torch.tensor(y[1:] + [TranslationDataset.EOS_IDX], dtype=torch.long)
+		return x_src, x_tgt, y_tgt
 
 	@staticmethod
 	def make_pad_mask(x):
-		return (x != TranslationDataset.PAD_IDX).unsqueeze(1) # (B, 1, T)
+		return (x != TranslationDataset.PAD_IDX) # (B, T)

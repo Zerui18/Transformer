@@ -2,8 +2,9 @@ from dataclasses import dataclass
 
 @dataclass
 class TransformerConfig:
-    block_size: int
-    vocab_size: int 
+    max_len: int
+    src_vocab_size: int
+    tgt_vocab_size: int
     n_blocks: int 
     n_heads: int 
     emb_dim: int 

@@ -1,5 +1,5 @@
 learning_rate: 0.001
-autotune_learning_rate: false
+autotune_learning_rate: true
 compile_model: false
 shuffle: true
 max_steps: 100000
