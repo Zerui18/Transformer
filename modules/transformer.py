@@ -90,7 +90,7 @@ class TransformerLMHead(nn.Module):
 	def __init__(self, emb_dim: int, tgt_vocab_size: int):
 		super().__init__()
 		self.ln = nn.LayerNorm(emb_dim)
-		self.logits_head = nn.Linear(emb_dim, tgt_vocab_size)
+		self.logits_head = nn.Linear(emb_dim, tgt_vocab_size, bias=False)
 	
 	def forward(self, x: Tensor):
 		x = self.ln(x)

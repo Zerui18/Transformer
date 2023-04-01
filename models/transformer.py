@@ -59,7 +59,7 @@ class Transformer(pl.LightningModule):
 		self.lm_head = TransformerLMHead(config.emb_dim, config.tgt_vocab_size)
 		# weight tying
 		if config.weight_tying:
-			self.src_embeddings.token_embedding_table.weight = self.lm_head.logits_head.weight
+			self.tgt_embeddings.token_embedding_table.weight = self.lm_head.logits_head.weight
 
 	def forward(self, src: Tensor, tgt: Tensor, src_tok_mask: Tensor, tgt_tok_mask: Tensor):
 		''' Forward pass through the model.'''
