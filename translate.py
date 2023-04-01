@@ -1,4 +1,4 @@
-from model import TransformerModelStockLN
+from models.transformer import TransformerModelStockLN
 
 def translate(args):
 	# load model
