@@ -158,10 +158,16 @@ class Experiment:
 
         Note: This should only be called in the subprocess.
         '''
+        # ensure experiment folder exists
         if self.config.resume_from_directory is None:
             self._init_exp_folder()
         else:
             self.exp_folder = self.config.resume_from_directory
+        # # redirect stdout & stderr to log file in experiment folder
+        import sys
+        sys.stdout = open(self.exp_folder / 'stdout.log', 'w')
+        sys.stderr = open(self.exp_folder / 'stderr.log', 'w')
+        # continue initializing resources
         self._init_dls()
         self._init_model()
         self._init_trainer()

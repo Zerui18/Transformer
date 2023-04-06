@@ -1,4 +1,5 @@
 from multiprocessing import Process, Value, Array
+from apscheduler.schedulers.background import BackgroundScheduler
 from .experiment import Experiment, ExperimentState, ExperimentConfig
 
 def run_experiment_child_process(name: str, state: Value, err_buffer: Value, experiment_config: ExperimentConfig):
@@ -34,6 +35,12 @@ class ExperimentManager:
         The manager will automatically run the next experiment in `queued_experiments` when the current experiment completes, stops, or crashes.
         Each experiment is run in a new child process, which is closed when the experiment completes, stops, or crashes.
     '''
+
+    def __init__(self):
+        # start the current experiment checker
+        self._current_exp_checker = BackgroundScheduler()
+        self._current_exp_checker.add_job(self._check_current_experiment, 'interval', seconds=1)
+        self._current_exp_checker.start()
     
     ### Completed Experiments ###
     completed_experiments: list[Experiment] = []
@@ -58,6 +65,7 @@ class ExperimentManager:
             self._run_next_experiment_in_queue()
     
     def stop_current_experiment(self):
+        self.current_experiment.state = ExperimentState.STOPPED
         removed_current_experiment = self._remove_current_experiment()
         self.stopped_experiments.append(removed_current_experiment)
     
@@ -75,11 +83,9 @@ class ExperimentManager:
         ''' Removes and returns the current experiment and closes its process. '''
         assert (self.current_experiment is not None) and (self.current_experiment_process is not None), 'Cannot remove current experiment while no experiment is running.'
         current_experiment = self.current_experiment
-        # request the experiment to stop
-        current_experiment.state = ExperimentState.STOPPED
-        print('waiting for current experiment to stop...')
         # wait for the process to finish (5s timeout) before removing it
         if self.current_experiment_process.is_alive():
+            print('waiting for current experiment to stop...')
             self.current_experiment_process.join(timeout = 5.0)
         # if the process is still running, terminate it
         if self.current_experiment_process.is_alive():
@@ -88,6 +94,16 @@ class ExperimentManager:
         self.current_experiment_process = None
         self.current_experiment = None
         return current_experiment
+    
+    def _check_current_experiment(self):
+        ''' Check if the current experiment has failed or completed and handles it accordingly. '''
+        if self.current_experiment is not None:
+            if self.current_experiment.state == ExperimentState.FAILED:
+                print(f'Experiment {self.current_experiment.name} failed.')
+                self._remove_current_experiment()
+            elif self.current_experiment.state == ExperimentState.COMPLETED:
+                print(f'Experiment {self.current_experiment.name} completed.')
+                self._remove_current_experiment()
 
     ### Queued Experiments ###
     def create_and_append_experiment(self, name: str, config: ExperimentConfig):
