@@ -140,9 +140,8 @@ class Transformer(pl.LightningModule):
 			# yield the current token
 			token = int(idx_next[0].cpu().numpy())
 			# print(f'{i}:', idx_next[0], token)
-			yield f'{idx_next[0]}: {token} \n'
-			# if len(token) > 0:
-			# 	yield token
+			# yield f'{idx_next[0]}: {token} \n'
+			yield token
 			# stop if the last token is the EOS token
 			if token == eos_idx:
 				break

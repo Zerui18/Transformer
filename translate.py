@@ -1,8 +1,8 @@
-from models.transformer import TransformerModelStockLN
+from models.transformer import Transformer
 
 def translate(args):
 	# load model
-	model = TransformerModelStockLN.load_from_checkpoint(args.checkpoint_path).cuda()
+	model = Transformer.load_from_checkpoint(args.checkpoint_path).cuda()
 	while True:
 		# input src text
 		text = input('Enter a sentence to translate: ').strip()

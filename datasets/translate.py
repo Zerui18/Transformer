@@ -10,7 +10,8 @@ from models.transformer import TransformerInputBatch
 
 @dataclass
 class TranslationDatasetConfig:
-	sp_model_file: str
+	src_sp_model_file: str
+	tgt_sp_model_file: str
 	src_file: str
 	tgt_file: str
 
@@ -31,7 +32,8 @@ class TranslationDataset(BaseDataset):
 		with open(config.tgt_file, encoding='utf8') as f:
 			tgt_lines = list(f)
 		self.df = pd.DataFrame({ 'src' : src_lines , 'tgt' : tgt_lines })
-		self.tokenizer = sp.SentencePieceProcessor(model_file=config.sp_model_file)
+		self.src_tokenizer = sp.SentencePieceProcessor(model_file=config.src_sp_model_file)
+		self.tgt_tokenizer = sp.SentencePieceProcessor(model_file=config.tgt_sp_model_file)
 
 	def __len__(self):
 		return len(self.df)
@@ -40,8 +42,8 @@ class TranslationDataset(BaseDataset):
 		row = self.df.iloc[idx]
 		src, tgt = row.src, row.tgt
 		# enable bpe dropout regularization
-		x = self.tokenizer.encode(src, enable_sampling=True, alpha=0.1, nbest_size=-1)
-		y = self.tokenizer.encode(tgt, enable_sampling=True, alpha=0.1, nbest_size=-1)
+		x = self.src_tokenizer.encode(src, enable_sampling=True, alpha=0.1, nbest_size=-1)
+		y = self.tgt_tokenizer.encode(tgt, enable_sampling=True, alpha=0.1, nbest_size=-1)
 		# create src & tgt tensors
 		x_src = torch.tensor([TranslationDataset.BOS_IDX] + x + [TranslationDataset.EOS_IDX], dtype=torch.long)
 		x_tgt = torch.tensor([TranslationDataset.BOS_IDX] + y[:-1], dtype=torch.long)
