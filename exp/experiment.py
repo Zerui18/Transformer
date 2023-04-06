@@ -1,5 +1,4 @@
 import yaml
-import shutil
 from pathlib import Path
 from torch.utils.data import DataLoader
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -179,7 +178,7 @@ class Experiment:
             import datasets
             config_cls = getattr(datasets, class_name + 'Config')
             cls = getattr(datasets, class_name)
-            ds: datasets.base = cls(config_cls(**init_args)) # generic reference to dataset
+            ds: datasets.BaseDataset = cls(config_cls(**init_args)) # generic reference to dataset
             dls[name] = DataLoader(ds, collate_fn=ds.get_collate_function(), num_workers=8, pin_memory=True, drop_last=True, **config['dl_init_args'])
         self.dls = dls
 

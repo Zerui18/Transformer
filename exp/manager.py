@@ -61,7 +61,7 @@ class ExperimentManager:
         # request the experiment to stop
         current_experiment.stop()
         print('waiting for current experiment to stop...')
-        # wait for the process to finish (10s timeout) before removing it
+        # wait for the process to finish (5s timeout) before removing it
         if self.current_experiment_process.is_alive():
             self.current_experiment_process.join(timeout = 5.0)
         # if the process is still running, terminate it
