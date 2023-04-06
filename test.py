@@ -15,6 +15,7 @@ print('Queued', exp_manager.queued_experiments)
 
 input()
 
-exp_manager.stop_current_experiment()
+print('Current', exp_manager.current_experiment)
+print('Queued', exp_manager.queued_experiments)
 
 input()

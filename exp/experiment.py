@@ -1,18 +1,20 @@
 import yaml
+import shutil
 from pathlib import Path
 from torch.utils.data import DataLoader
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import Callback, ModelCheckpoint
-from multiprocessing import Value
+from multiprocessing import Value, Array
 import json
 
 class ExperimentState:
     ''' An enum for the state of an experiment. '''
     QUEUING = 0 # waiting to be run
     RUNNING = 1 # currently running
-    STOPPED = 2 # stopped by user (will not be run until changed to queuing)
-    COMPLETED = 3 # finished running
+    COMPLETED = 2 # completed successfully
+    STOPPED = 3 # stopped by user
+    FAILED = 4 # failed due to an error
 
 class ExperimentStopper(Callback):
     ''' A callback for stopping the trainer when the experiment is stopped. '''
@@ -26,7 +28,7 @@ class ExperimentStopper(Callback):
     def check_should_stop(self):
         if self.state is None:
             return False
-        return self.state.value != ExperimentState.RUNNING
+        return self.state.value == ExperimentState.STOPPED
 
     def on_train_batch_end(self, trainer: Trainer, *args):
         if self.check_should_stop():
@@ -47,7 +49,7 @@ class ExperimentConfig:
             `model_config (dict)`: The model config.
             `trainer_config (dict)`: The trainer config.
             `resume_from_directory (str, optional)`: The path to the experiment directory to resume from. If None, a new experiment directory will be created. Defaults to None.
-            `resume_from_checkpoint (str, optional)`: The path to the checkpoint to resume from. If None, no checkpoint will be loaded. Defaults to None.
+            `resume_from_checkpoint (str, optional)`: The name of the checkpoint to resume from. If None, no checkpoint will be loaded. Defaults to None.
         '''
         self.dls_config = dls_config
         self.model_config = model_config
@@ -64,7 +66,7 @@ class ExperimentConfig:
             `dls_config_file (str)`: The path to the dataloaders config file.
             `trainer_config_file (str)`: The path to the trainer config file.
             `resume_from_directory (str, optional)`: The path to the experiment directory to resume from. If None, a new experiment directory will be created. Defaults to None.
-            `resume_from_checkpoint (str, optional)`: The path to the checkpoint to resume from. If None, no checkpoint will be loaded. Defaults to None.
+            `resume_from_checkpoint (str, optional)`: The name of the checkpoint to resume from. If None, no checkpoint will be loaded. Defaults to None.
         '''
         with open(model_config_file, 'r') as f:
             model_config = yaml.safe_load(f)
@@ -104,6 +106,7 @@ class Experiment:
 
     ### SHARED ###
     _state: Value
+    _err_buffer: Array
     
     @property
     def state(self) -> int:
@@ -112,10 +115,17 @@ class Experiment:
     def state(self, value: int):
         self._state.value = value
 
+    @property
+    def err_buffer(self) -> str:
+        return self._err_buffer.value.decode('utf-8')
+    @err_buffer.setter
+    def err_buffer(self, value: str):
+        self._err_buffer[:len(value)] = value.encode('utf-8')
+
     ### PRIVATE ###
     _experiment_stopper: ExperimentStopper
 
-    def __init__(self, name: str, state: Value, config: ExperimentConfig):
+    def __init__(self, name: str, state: Value, err_buffer: Value, config: ExperimentConfig):
         ''' Creates an Experiment object.
 
         Args:
@@ -124,36 +134,39 @@ class Experiment:
             `config (ExperimentConfig)`: The config for the experiment.
         '''
         self._state = state
+        self._err_buffer = err_buffer
         self.name = name
         self.config = config
-
-    def start(self):
-        self.state = ExperimentState.QUEUING
-    
-    def stop(self):
-        self.state = ExperimentState.STOPPED
     
     def run(self):
-        self.state = ExperimentState.RUNNING
-        self.trainer.fit(self.model, self.dls['train'], self.dls['valid'], ckpt_path=self.config.resume_from_checkpoint)
-        # only set completed if not stopped
-        if self.state == ExperimentState.RUNNING:
-            self.state = ExperimentState.COMPLETED
+        ''' Run the experiment. '''
+        self.err_buffer = '' # clear error buffer
+        try:
+            self._init_resources()
+            self.state = ExperimentState.RUNNING
+            self.trainer.fit(self.model, self.dls['train'], self.dls['valid'], ckpt_path=self.config.resume_from_checkpoint)
+            # only set completed if not stopped
+            if self.state == ExperimentState.RUNNING:
+                self.state = ExperimentState.COMPLETED
+        except Exception as e:
+            # capture any runtime exception & save to error buffer
+            self.state = ExperimentState.FAILED
+            self.err_buffer = str(e)
 
-    def init_resources(self):
+    def _init_resources(self):
         ''' Initialize all resources needed for the experiment.
 
         Note: This should only be called in the subprocess.
         '''
         if self.config.resume_from_directory is None:
-            self.init_exp_folder()
+            self._init_exp_folder()
         else:
             self.exp_folder = self.config.resume_from_directory
-        self.init_dls()
-        self.init_model()
-        self.init_trainer()
+        self._init_dls()
+        self._init_model()
+        self._init_trainer()
 
-    def init_exp_folder(self):
+    def _init_exp_folder(self):
         ''' Initialize the experiment folder. '''
         exp_folder = Path(f'experiments/{self.name}')
         exp_folder.mkdir(parents=True, exist_ok=True)
@@ -168,7 +181,7 @@ class Experiment:
         (exp_folder / 'checkpoints').mkdir(parents=True, exist_ok=True)
         self.exp_folder = exp_folder
 
-    def init_dls(self):
+    def _init_dls(self):
         dls_config = self.config.dls_config
         dls = {}
         for name in ['train', 'valid']:
@@ -182,7 +195,7 @@ class Experiment:
             dls[name] = DataLoader(ds, collate_fn=ds.get_collate_function(), num_workers=8, pin_memory=True, drop_last=True, **config['dl_init_args'])
         self.dls = dls
 
-    def init_model(self):
+    def _init_model(self):
         model_config = self.config.model_config
         class_name = model_config['class']
         init_args = model_config['init_args']
@@ -195,7 +208,7 @@ class Experiment:
         # import torch
         # self.model = torch.compile(self.model)
 
-    def init_trainer(self):
+    def _init_trainer(self):
         trainer_config = self.config.trainer_config
         # init callbacks
         self._experiment_stopper = ExperimentStopper(self._state)
@@ -212,11 +225,16 @@ class Experiment:
                                logger=logger,
                                **trainer_config)
     
+    def remove_exp_folder(self):
+        ''' Removes the experiment folder. '''
+        shutil.rmtree(self.exp_folder)
+
     def get_dict_representation(self):
         ''' Returns a dictionary representation of the experiment. '''
         return {
             'name': self.name,
             'state': self.state,
+            'err_buffer': self.err_buffer,
             'config': {
                 'model': self.config.model_config,
                 'dl': self.config.dls_config,
