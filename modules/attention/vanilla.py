@@ -38,7 +38,10 @@ class MultiHeadSelfAttention(nn.Module):
 		v = v.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
 		# compute attention
 		att_weights = (q @ k.transpose(-2, -1)) / math.sqrt(k.size(-1))
-		mask = tok_mask.view(B, 1, 1, T) # (B, 1, 1, T) <=> (B, nh, T, T)
+		mask = tok_mask.view(B, 1, T) # (B, 1, T)
+		mask = mask.tile(1, T, 1) # (B, T, T)
+		mask = mask & mask.transpose(-2, -1) # (B, T, T)
+		mask = mask.view(B, 1, T, T) # (B, 1, T, T)
 		if self.is_causal:
 			causal_mask = torch.tril(torch.ones(T, T, dtype=torch.bool, device=x.device))
 			mask = mask & causal_mask[None, None, :T, :T]

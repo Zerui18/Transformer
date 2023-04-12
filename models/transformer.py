@@ -14,16 +14,17 @@ class TransformerConfig:
     max_len: int
     src_vocab_size: int
     tgt_vocab_size: int
-    n_blocks: int 
-    n_heads: int 
-    emb_dim: int 
+    n_blocks: int
+    n_heads: int
+    emb_dim: int
     dropout: float
-    bias: bool 
+    bias: bool
     weight_tying: bool
     use_grad_ckpt: bool
     pad_index: int
     optimizer: str
     learning_rate: float
+    attention_type: str = 'vanilla'
 
 ### INPUT ###
 
@@ -45,6 +46,7 @@ class Transformer(pl.LightningModule):
 		self.save_hyperparameters()
 		self.config = config
 		self.learning_rate = config.learning_rate
+		self.attention_type = config.attention_type
 		self.criterion = nn.CrossEntropyLoss(ignore_index=config.pad_index)
 		# setup sample input for tracing
 		self.example_input_array = (torch.zeros(1, config.max_len, dtype=torch.long),
@@ -54,8 +56,8 @@ class Transformer(pl.LightningModule):
 		# model parts
 		self.src_embeddings = PosNTokEmbedding(config.src_vocab_size, config.emb_dim, config.max_len)
 		self.tgt_embeddings = PosNTokEmbedding(config.tgt_vocab_size, config.emb_dim, config.max_len)
-		self.encoder = TransformerEncoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt)
-		self.decoder = TransformerDecoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt)
+		self.encoder = TransformerEncoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt, config.attention_type)
+		self.decoder = TransformerDecoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt, config.attention_type)
 		self.lm_head = TransformerLMHead(config.emb_dim, config.tgt_vocab_size)
 		# weight tying
 		if config.weight_tying:
@@ -88,8 +90,6 @@ class Transformer(pl.LightningModule):
 		self.log(f'{prefix}_accuracy', accuracy)
 
 	def training_step(self, batch: TransformerInputBatch, batch_idx: int):
-		# opt = self.optimizer
-		# opt.zero_grad()
 		y_pred = self(batch.x_src, batch.x_tgt, batch.x_src_mask, batch.x_tgt_mask)
 		self.calculate_metrics(y_pred, batch.y_tgt, 'train')
 		return self.calculate_loss(y_pred, batch.y_tgt, 'train')

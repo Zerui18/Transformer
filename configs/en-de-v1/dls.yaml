@@ -6,7 +6,7 @@ train:
     src_file: data/multi30k/train.en
     tgt_file: data/multi30k/train.de
   dl_init_args:
-    batch_size: 1024
+    batch_size: 256
     shuffle: true
 valid:
   ds_class: TranslationDataset

@@ -152,6 +152,7 @@ class Experiment:
             # capture any runtime exception & save to error buffer
             self.state = ExperimentState.FAILED
             self.err_buffer = str(e)
+            raise e
 
     def _init_resources(self):
         ''' Initialize all resources needed for the experiment.
@@ -163,10 +164,12 @@ class Experiment:
             self._init_exp_folder()
         else:
             self.exp_folder = self.config.resume_from_directory
-        # # redirect stdout & stderr to log file in experiment folder
-        import sys
-        sys.stdout = open(self.exp_folder / 'stdout.log', 'w')
-        sys.stderr = open(self.exp_folder / 'stderr.log', 'w')
+        # if self._state is not None:
+        #     # we're in child process
+        #     # redirect stdout & stderr to log file in experiment folder
+        #     import sys
+        #     sys.stdout = open(self.exp_folder / 'stdout.log', 'w')
+        #     sys.stderr = open(self.exp_folder / 'stderr.log', 'w')
         # continue initializing resources
         self._init_dls()
         self._init_model()

@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch import Tensor
 from torch.utils.checkpoint import checkpoint
-from .attention import MultiHeadSelfAttention, MultiHeadCrossAttention
+from importlib import import_module
 
 class TransformerFeedFoward(nn.Module):
 
@@ -21,9 +21,11 @@ class TransformerFeedFoward(nn.Module):
 
 class TransformerEncoderBlock(nn.Module):
 
-	def __init__(self, n_heads: int, emb_dim: int, dropout: float, bias: bool = False):
+	def __init__(self, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, attention_type: str = 'vanilla'):
 		super().__init__()
-		self.sa_module = MultiHeadSelfAttention(n_heads, emb_dim, dropout, bias)
+		attn_module = import_module(f'..attention.{attention_type}', __name__)
+		sa_class = getattr(attn_module, 'MultiHeadSelfAttention')
+		self.sa_module = sa_class(n_heads, emb_dim, dropout, bias)
 		self.fw_module = TransformerFeedFoward(emb_dim, dropout)
 		self.ln1 = nn.LayerNorm(emb_dim)
 		self.ln2 = nn.LayerNorm(emb_dim)
@@ -36,9 +38,9 @@ class TransformerEncoderBlock(nn.Module):
 
 class TransformerEncoder(nn.Module):
 
-	def __init__(self, n_blocks: int, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, use_grad_ckpt: bool = False):
+	def __init__(self, n_blocks: int, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, use_grad_ckpt: bool = False, attention_type: str = 'vanilla'):
 		super().__init__()
-		self.blocks = nn.ModuleList([TransformerEncoderBlock(n_heads, emb_dim, dropout, bias) for _ in range(n_blocks)])
+		self.blocks = nn.ModuleList([TransformerEncoderBlock(n_heads, emb_dim, dropout, bias, attention_type) for _ in range(n_blocks)])
 		self.use_grad_ckpt = use_grad_ckpt
 	
 	def forward(self, src: Tensor, src_mask: Tensor):
@@ -53,10 +55,13 @@ class TransformerEncoder(nn.Module):
 
 class TransformerDecoderBlock(nn.Module):
 
-	def __init__(self, n_heads: int, emb_dim: int, dropout: float, bias: bool = False):
+	def __init__(self, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, attention_type: str = 'vanilla'):
 		super().__init__()
-		self.sa_module = MultiHeadSelfAttention(n_heads, emb_dim, dropout, bias, is_causal=True)
-		self.ca_module = MultiHeadCrossAttention(n_heads, emb_dim, dropout, bias)
+		attn_module = import_module(f'..attention.{attention_type}', __name__)
+		sa_class = getattr(attn_module, 'MultiHeadSelfAttention')
+		ca_class = getattr(attn_module, 'MultiHeadCrossAttention')
+		self.sa_module = sa_class(n_heads, emb_dim, dropout, bias, is_causal=True)
+		self.ca_module = ca_class(n_heads, emb_dim, dropout, bias)
 		self.fw_module = TransformerFeedFoward(emb_dim, dropout)
 		self.ln1 = nn.LayerNorm(emb_dim)
 		self.ln2 = nn.LayerNorm(emb_dim)
@@ -70,9 +75,9 @@ class TransformerDecoderBlock(nn.Module):
 
 class TransformerDecoder(nn.Module):
 
-	def __init__(self, n_blocks: int, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, use_grad_ckpt: bool = False):
+	def __init__(self, n_blocks: int, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, use_grad_ckpt: bool = False, attention_type: str = 'vanilla'):
 		super().__init__()
-		self.blocks = nn.ModuleList([TransformerDecoderBlock(n_heads, emb_dim, dropout, bias) for _ in range(n_blocks)])
+		self.blocks = nn.ModuleList([TransformerDecoderBlock(n_heads, emb_dim, dropout, bias, attention_type) for _ in range(n_blocks)])
 		self.use_grad_ckpt = use_grad_ckpt
 	
 	def forward(self, src: Tensor, tgt: Tensor, src_mask: Tensor, tgt_mask: Tensor):

@@ -20,6 +20,9 @@ def run_experiment(experiment: Experiment) -> Process:
 
 class ExperimentManager:
     ''' Mangages the deployment of experiments.
+
+    Args:
+        `single_process (bool)`: Whether to run all experiments in the same process, useful for debugging experiments.
     
         Note: This class should only be used in the main process.
 
@@ -36,11 +39,17 @@ class ExperimentManager:
         Each experiment is run in a new child process, which is closed when the experiment completes, stops, or crashes.
     '''
 
-    def __init__(self):
-        # start the current experiment checker
-        self._current_exp_checker = BackgroundScheduler()
-        self._current_exp_checker.add_job(self._check_current_experiment, 'interval', seconds=1)
-        self._current_exp_checker.start()
+    def __init__(self, single_process: bool = False):
+        self.single_process = single_process
+        if self.single_process:
+            # configure torch
+            import torch
+            torch.set_float32_matmul_precision('high')
+        else:
+            # start the current experiment checker
+            self._current_exp_checker = BackgroundScheduler()
+            self._current_exp_checker.add_job(self._check_current_experiment, 'interval', seconds=1)
+            self._current_exp_checker.start()
     
     ### Completed Experiments ###
     completed_experiments: list[Experiment] = []
@@ -77,10 +86,28 @@ class ExperimentManager:
         ''' Sets the current experiment to the experiment at the given index in the queue and runs it. '''
         assert (self.current_experiment is None) and (self.current_experiment_process is None), 'Cannot set current experiment while another experiment is running.'
         self.current_experiment = self.queued_experiments.pop(index)
-        self.current_experiment_process = run_experiment(self.current_experiment)
+        if self.single_process:
+            self.current_experiment.run()
+            # since we're not using self._current_exp_checker
+            # manually check if the experiment completed, stopped, or failed
+            # and move it to the appropriate queue
+            if self.current_experiment.state == ExperimentState.COMPLETED:
+                self.completed_experiments.append(self.current_experiment)
+            elif self.current_experiment.state == ExperimentState.STOPPED:
+                self.stopped_experiments.append(self.current_experiment)
+            elif self.current_experiment.state == ExperimentState.FAILED:
+                self.failed_experiments.append(self.current_experiment)
+            # remove the current experiment
+            self.current_experiment = None
+        else:
+            self.current_experiment_process = run_experiment(self.current_experiment)
     
     def _remove_current_experiment(self):
         ''' Removes and returns the current experiment and closes its process. '''
+        if self.single_process:
+            current_experiment = self.current_experiment
+            self.current_experiment = None
+            return current_experiment
         assert (self.current_experiment is not None) and (self.current_experiment_process is not None), 'Cannot remove current experiment while no experiment is running.'
         current_experiment = self.current_experiment
         # wait for the process to finish (5s timeout) before removing it
@@ -100,6 +127,7 @@ class ExperimentManager:
         if self.current_experiment is not None:
             if self.current_experiment.state == ExperimentState.FAILED:
                 print(f'Experiment {self.current_experiment.name} failed.')
+                print(self.current_experiment)
                 self._remove_current_experiment()
             elif self.current_experiment.state == ExperimentState.COMPLETED:
                 print(f'Experiment {self.current_experiment.name} completed.')
