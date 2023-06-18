@@ -44,7 +44,7 @@ class MultiHeadSelfAttention(nn.Module):
 		mask = mask.view(B, 1, T, T) # (B, 1, T, T)
 		if self.is_causal:
 			causal_mask = torch.tril(torch.ones(T, T, dtype=torch.bool, device=x.device))
-			mask = mask & causal_mask[None, None, :T, :T]
+			mask = mask & causal_mask[None, None, :, :]
 		att_weights = att_weights.masked_fill(mask == 0, -1e9)
 		att_weights = nn.functional.softmax(att_weights, dim=-1)
 		att_weights = self.attn_dropout(att_weights)

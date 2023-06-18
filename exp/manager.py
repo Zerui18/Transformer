@@ -27,13 +27,18 @@ class ExperimentManager:
         Note: This class should only be used in the main process.
 
         Manages 4 queues:
+
             - `completed_experiments`: Experiments that have completed.
+
             - `queued_experiments`: Experiments that are queued to run.
+
             - `stopped_experiments`: Experiments that have been stopped.
+
             - `failed_experiments`: Experiments that have failed.
         
         And 1 current experiment:
-            - `current_experiment`: The experiment that is currently running.
+
+            - `current_experiment` : The experiment that is currently running.
         
         The manager will automatically run the next experiment in `queued_experiments` when the current experiment completes, stops, or crashes.
         Each experiment is run in a new child process, which is closed when the experiment completes, stops, or crashes.

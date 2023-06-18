@@ -1,0 +1,20 @@
+train:
+  ds_class: TranslationDataset
+  ds_init_args:
+    src_sp_model_file: data/multi30k/bpe_en.model
+    tgt_sp_model_file: data/multi30k/bpe_de.model
+    src_file: data/multi30k/train.en
+    tgt_file: data/multi30k/train.de
+  dl_init_args:
+    batch_size: 256
+    shuffle: true
+valid:
+  ds_class: TranslationDataset
+  ds_init_args:
+    src_sp_model_file: data/multi30k/bpe_en.model
+    tgt_sp_model_file: data/multi30k/bpe_de.model
+    src_file: data/multi30k/val.en
+    tgt_file: data/multi30k/val.de
+  dl_init_args:
+    batch_size: 256
+    shuffle: false
