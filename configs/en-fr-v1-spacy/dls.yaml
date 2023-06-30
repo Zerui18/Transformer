@@ -1,0 +1,27 @@
+train:
+  ds_class: TranslationDatasetSpacy
+  ds_init_args:
+    src_model: en_core_web_sm
+    tgt_model: fr_core_news_sm
+    src_vocab_file: src_vocab.pkl
+    tgt_vocab_file: tgt_vocab.pkl
+    src_file: data/un/undoc.2000.fr-en.en
+    tgt_file: data/un/undoc.2000.fr-en.fr
+    max_seq_len: 512
+  dl_init_args:
+    batch_size: 32
+    shuffle: true
+valid:
+  ds_class: TranslationDatasetSpacy
+  ds_init_args:
+    src_model: en_core_web_sm
+    tgt_model: fr_core_news_sm
+    src_vocab_file: src_vocab.pkl
+    tgt_vocab_file: tgt_vocab.pkl
+    src_file: data/news-commentary-v9/news-commentary-v9.fr-en.en
+    tgt_file: data/news-commentary-v9/news-commentary-v9.fr-en.fr
+    max_seq_len: 512
+    first_n_lines: 10000
+  dl_init_args:
+    batch_size: 32
+    shuffle: false

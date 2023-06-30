@@ -1,15 +1,16 @@
-class: HFEncoderDecoder
+class: Transformer
 init_args:
-  max_len: 1024
-  src_vocab_size: 19214
-  tgt_vocab_size: 10837
-  n_blocks: 3
+  max_len: 512
+  src_vocab_size: 118961
+  tgt_vocab_size: 133485
+  n_blocks: 6
   n_heads: 8 # Number of heads in multi-head attention, each head has dim = emb_dim/n_heads
-  emb_dim: 512
+  emb_dim: 512 
   dropout: 0.1 # Applies to: post-attention, post-linear
   bias: false # Applies to: qkv projections in attention layers
   weight_tying: true
-  use_grad_ckpt: false
+  use_grad_ckpt: true
   pad_index: 3
   optimizer: AdamW
   learning_rate: 0.0005
+  attention_type: xformer

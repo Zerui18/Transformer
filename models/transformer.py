@@ -6,6 +6,7 @@ import pytorch_lightning as pl
 from modules.transformer import TransformerEncoder, TransformerDecoder, TransformerLMHead
 from modules.embedding import PosNTokEmbedding
 from dataclasses import dataclass
+from pytorch_lightning.utilities import grad_norm
 
 ### CONFIG ###
 
@@ -51,8 +52,8 @@ class Transformer(pl.LightningModule):
 		# setup sample input for tracing
 		self.example_input_array = (torch.zeros(1, config.max_len, dtype=torch.long),
 			      					torch.zeros(1, config.max_len, dtype=torch.long),
-									torch.zeros(1, 1, config.max_len, dtype=torch.long),
-									torch.zeros(1, 1, config.max_len, dtype=torch.long))
+									torch.zeros(1, config.max_len, dtype=torch.long),
+									torch.zeros(1, config.max_len, dtype=torch.long))
 		# model parts
 		self.src_embeddings = PosNTokEmbedding(config.src_vocab_size, config.emb_dim, config.max_len)
 		self.tgt_embeddings = PosNTokEmbedding(config.tgt_vocab_size, config.emb_dim, config.max_len)
@@ -107,6 +108,10 @@ class Transformer(pl.LightningModule):
 	def configure_optimizers(self):
 		optimizer = getattr(torch.optim, self.config.optimizer)
 		return optimizer(self.parameters(), lr=self.learning_rate)
+	
+	def on_before_optimizer_step(self, optimizer):
+		norms = grad_norm(self, 2)
+		self.log_dict(norms)
 	
 	@torch.inference_mode()
 	def translate(self, src: Tensor, bos_idx: int, eos_idx: int, temperature: float = 1.0, max_new_tokens: int = 1000):

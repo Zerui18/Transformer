@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch import Tensor
-from xformers.ops import memory_efficient_attention, LowerTriangularMask
+import math
 
 class MultiHeadSelfAttention(nn.Module):
 
@@ -21,7 +21,7 @@ class MultiHeadSelfAttention(nn.Module):
 		self.is_causal = is_causal
 		self.n_heads = n_heads
 		self.emb_dim = emb_dim
-		self.p_attn_dropout = dropout
+		self.attn_dropout = nn.Dropout(dropout)
 		self.resid_dropout = nn.Dropout(dropout)
 		# combine q, k, v projections for efficiency
 		self.qkv_projection = nn.Linear(emb_dim, 3 * emb_dim, bias=bias)
@@ -33,13 +33,24 @@ class MultiHeadSelfAttention(nn.Module):
 		# proj q, k, v for all heads
 		# the heads are treated as a batch dimension
 		q, k, v = self.qkv_projection(x).split(self.emb_dim, dim=2)
-		q = q.view(B, T, self.n_heads, C // self.n_heads)
-		k = k.view(B, T, self.n_heads, C // self.n_heads)
-		v = v.view(B, T, self.n_heads, C // self.n_heads)
+		q = q.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
+		k = k.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
+		v = v.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
 		# compute attention
-		y = memory_efficient_attention(q, k, v, LowerTriangularMask(), self.p_attn_dropout, None)
+		att_weights = torch.ones((B, self.n_heads, T, T), dtype=torch.float, device=x.device) / math.sqrt(k.size(-1))
+		mask = tok_mask.view(B, 1, T) # (B, 1, T)
+		mask = mask.tile(1, T, 1) # (B, T, T)
+		mask = mask & mask.transpose(-2, -1) # (B, T, T)
+		mask = mask.view(B, 1, T, T) # (B, 1, T, T)
+		if self.is_causal:
+			causal_mask = torch.tril(torch.ones(T, T, dtype=torch.bool, device=x.device))
+			mask = mask & causal_mask[None, None, :, :]
+		att_weights = att_weights.masked_fill(mask == 0, -1e9)
+		att_weights = nn.functional.softmax(att_weights, dim=-1)
+		att_weights = self.attn_dropout(att_weights)
+		y = att_weights @ v
 		# combine heads
-		y = y.contiguous().view(B, T, C)
+		y = y.transpose(1, 2).contiguous().view(B, T, C)
 		y = self.resid_dropout(self.c_proj(y))
 		return y
 
@@ -62,7 +73,7 @@ class MultiHeadCrossAttention(nn.Module):
 		super().__init__()
 		self.n_heads = n_heads
 		self.emb_dim = emb_dim
-		self.p_attn_dropout = dropout
+		self.attn_dropout = nn.Dropout(dropout)
 		self.resid_dropout = nn.Dropout(dropout)
 		self.q_projection = nn.Linear(emb_dim, emb_dim, bias=bias)
 		# combine k, v projections for efficiency
@@ -74,15 +85,24 @@ class MultiHeadCrossAttention(nn.Module):
 		# proj query for all heads
 		B, T_q, C = x_q.shape
 		q = self.q_projection(x_q)
-		q = q.view(B, T_q, self.n_heads, C // self.n_heads)
+		q = q.view(B, T_q, self.n_heads, C // self.n_heads).transpose(1, 2)
 		# proj key & value for all heads
 		B, T_kv, C = x_kv.shape
 		k, v = self.kv_projection(x_kv).split(self.emb_dim, dim=2)
-		k = k.view(B, T_kv, self.n_heads, C // self.n_heads)
-		v = v.view(B, T_kv, self.n_heads, C // self.n_heads)
+		k = k.view(B, T_kv, self.n_heads, C // self.n_heads).transpose(1, 2)
+		v = v.view(B, T_kv, self.n_heads, C // self.n_heads).transpose(1, 2)
 		# compute attention
-		y = memory_efficient_attention(q, k, v, None, self.p_attn_dropout, None)
+		att_weights = torch.ones((B, self.n_heads, T_q, T_kv), dtype=torch.float, device=x_q.device) / math.sqrt(k.size(-1))
+		# merge masks
+		q_tok_mask = q_tok_mask.unsqueeze(2) # (N, T_q, 1)
+		kv_tok_mask = kv_tok_mask.unsqueeze(1) # (N, 1, T_kv)
+		attn_mask = q_tok_mask & kv_tok_mask
+		# apply mask
+		att_weights = att_weights.masked_fill(attn_mask.unsqueeze(1) == 0, -1e9)
+		att_weights = nn.functional.softmax(att_weights, dim=-1)
+		att_weights = self.attn_dropout(att_weights)
+		y = att_weights @ v
 		# combine heads
-		y = y.contiguous().view(B, T_q, C)
+		y = y.transpose(1, 2).contiguous().view(B, T_q, C)
 		y = self.resid_dropout(self.c_proj(y))
 		return y

@@ -38,10 +38,8 @@ class MultiHeadSelfAttention(nn.Module):
 		v = v.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
 		# compute attention
 		att_weights = (q @ k.transpose(-2, -1)) / math.sqrt(k.size(-1))
-		mask = tok_mask.view(B, 1, T) # (B, 1, T)
-		mask = mask.tile(1, T, 1) # (B, T, T)
-		mask = mask & mask.transpose(-2, -1) # (B, T, T)
-		mask = mask.view(B, 1, T, T) # (B, 1, T, T)
+		mask = torch.einsum('bt,bT->btT', tok_mask, tok_mask) # (B, T, T)
+		mask = mask.unsqueeze(1) # (B, 1, T, T)
 		if self.is_causal:
 			causal_mask = torch.tril(torch.ones(T, T, dtype=torch.bool, device=x.device))
 			mask = mask & causal_mask[None, None, :, :]
@@ -94,9 +92,7 @@ class MultiHeadCrossAttention(nn.Module):
 		# compute attention
 		att_weights = (q @ k.transpose(-2, -1)) / math.sqrt(k.size(-1))
 		# merge masks
-		q_tok_mask = q_tok_mask.unsqueeze(2) # (N, T_q, 1)
-		kv_tok_mask = kv_tok_mask.unsqueeze(1) # (N, 1, T_kv)
-		attn_mask = q_tok_mask & kv_tok_mask
+		attn_mask = torch.einsum('bt,bT->btT', q_tok_mask, kv_tok_mask) # (B, T_q, T_kv)
 		# apply mask
 		att_weights = att_weights.masked_fill(attn_mask.unsqueeze(1) == 0, -1e9)
 		att_weights = nn.functional.softmax(att_weights, dim=-1)

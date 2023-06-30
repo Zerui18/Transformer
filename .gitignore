@@ -5,3 +5,4 @@ experiments/
 .lr_find*
 .ipynb_checkpoints/
 test_notebooks/.data/
+transformer/

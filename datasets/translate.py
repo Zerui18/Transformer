@@ -14,6 +14,8 @@ class TranslationDatasetConfig:
 	tgt_sp_model_file: str
 	src_file: str
 	tgt_file: str
+	max_seq_len: int
+	first_n_lines: int = None
 
 ### DATASET ###
 
@@ -28,9 +30,16 @@ class TranslationDataset(BaseDataset):
 		super().__init__()
 		print('Reading input files...')
 		with open(config.src_file, encoding='utf8') as f:
-			src_lines = list(f)
+			if config.first_n_lines is None:
+				src_lines = f.readlines()
+			else:
+				src_lines = [next(f) for _ in range(config.first_n_lines)]
 		with open(config.tgt_file, encoding='utf8') as f:
-			tgt_lines = list(f)
+			if config.first_n_lines is None:
+				tgt_lines = f.readlines()
+			else:
+				tgt_lines = [next(f) for _ in range(config.first_n_lines)]
+		self.max_seq_len = config.max_seq_len
 		self.df = pd.DataFrame({ 'src' : src_lines , 'tgt' : tgt_lines })
 		self.src_tokenizer = sp.SentencePieceProcessor(model_file=config.src_sp_model_file)
 		self.tgt_tokenizer = sp.SentencePieceProcessor(model_file=config.tgt_sp_model_file)
@@ -42,8 +51,8 @@ class TranslationDataset(BaseDataset):
 		row = self.df.iloc[idx]
 		src, tgt = row.src, row.tgt
 		# enable bpe dropout regularization
-		x = self.src_tokenizer.encode(src, enable_sampling=True, alpha=0.1, nbest_size=-1)
-		y = self.tgt_tokenizer.encode(tgt, enable_sampling=True, alpha=0.1, nbest_size=-1)
+		x = self.src_tokenizer.encode(src, enable_sampling=True, alpha=0.1, nbest_size=-1)[:self.max_seq_len]
+		y = self.tgt_tokenizer.encode(tgt, enable_sampling=True, alpha=0.1, nbest_size=-1)[:self.max_seq_len]
 		# create src & tgt tensors
 		x_src = torch.tensor([TranslationDataset.BOS_IDX] + x + [TranslationDataset.EOS_IDX], dtype=torch.long)
 		x_tgt = torch.tensor([TranslationDataset.BOS_IDX] + y[:-1], dtype=torch.long)

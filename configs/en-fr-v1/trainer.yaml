@@ -1,0 +1,4 @@
+# autotune_learning_rate: false
+max_steps: 20000
+accumulate_grad_batches: 4
+log_every_n_steps: 10

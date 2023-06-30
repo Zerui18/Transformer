@@ -7,9 +7,9 @@ import functools
 ### RotaryEmbedding Helper Functions ###
 def get_angles(theta, seq_len, hidden_dim):
 	# angular speed
-	w = 1. / (theta ** (torch.arange(0, hidden_dim, 2, dtype=torch.float)[:(hidden_dim // 2)] / hidden_dim))
+	w = 1. / (theta ** (torch.arange(1, hidden_dim+1, 2, dtype=torch.float)[:(hidden_dim // 2)] / hidden_dim))
 	# time
-	t = torch.arange(seq_len, dtype=torch.float)
+	t = torch.arange(1, seq_len+1, dtype=torch.float)
 	angles = torch.einsum('i, j -> i j', t, w)
 	return angles
 

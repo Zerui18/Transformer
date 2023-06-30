@@ -1,19 +1,20 @@
+import os
 from multiprocessing import Process, Value, Array
 from apscheduler.schedulers.background import BackgroundScheduler
 from .experiment import Experiment, ExperimentState, ExperimentConfig
 
-def run_experiment_child_process(name: str, state: Value, err_buffer: Value, experiment_config: ExperimentConfig):
+def run_experiment_child_process(name: str, directory: str, state: Value, err_buffer: Value, experiment_config: ExperimentConfig):
     ''' Entry point for the child process of an experiment. '''
     # configure torch
     import torch
     torch.set_float32_matmul_precision('high')
     # run experiment
-    experiment = Experiment(name, state, err_buffer, experiment_config)
+    experiment = Experiment(name, directory, state, err_buffer, experiment_config)
     experiment.run()
 
 def run_experiment(experiment: Experiment) -> Process:
     ''' Creates, starts, and returns a Process for the given experiment. '''
-    process = Process(target=run_experiment_child_process, args=(experiment.name, experiment._state, experiment._err_buffer, experiment.config))
+    process = Process(target=run_experiment_child_process, args=(experiment.name, experiment.directory, experiment._state, experiment._err_buffer, experiment.config))
     # process.daemon = True
     process.start()
     return process
@@ -22,7 +23,8 @@ class ExperimentManager:
     ''' Mangages the deployment of experiments.
 
     Args:
-        `single_process (bool)`: Whether to run all experiments in the same process, useful for debugging experiments.
+		`master_directory (str)`: The full path to the directory where all experiments will be stored.
+        `single_process (bool)`: [False] Whether to run all experiments in the same process, useful for debugging experiments.
     
         Note: This class should only be used in the main process.
 
@@ -44,8 +46,9 @@ class ExperimentManager:
         Each experiment is run in a new child process, which is closed when the experiment completes, stops, or crashes.
     '''
 
-    def __init__(self, single_process: bool = False):
+    def __init__(self, master_directory: str, single_process: bool = False):
         self.single_process = single_process
+        self.master_directory = master_directory
         if self.single_process:
             # configure torch
             import torch
@@ -142,7 +145,10 @@ class ExperimentManager:
     def create_and_append_experiment(self, name: str, config: ExperimentConfig):
         state = Value('i', ExperimentState.QUEUING)
         err_buffer = Array('c', 1024)
-        experiment = Experiment(name, state, err_buffer, config)
+        directory = os.path.join(self.master_directory, name)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        experiment = Experiment(name, directory, state, err_buffer, config)
         self.enqueue(experiment)
 
     def enqueue(self, experiment: Experiment):

@@ -36,7 +36,7 @@ class HFEncoderDecoderConfig:
 			intermediate_size=self.emb_dim * 4,
 			hidden_dropout_prob=self.dropout,
 			attention_probs_dropout_prob=self.dropout,
-			max_position_embeddings=self.max_len,
+			max_position_embeddings=self.max_len + 2,
 			pad_token_id=self.pad_index,
 			position_embedding_type='absolute')
 		decoder_config = BertConfig(
@@ -47,7 +47,7 @@ class HFEncoderDecoderConfig:
 			intermediate_size=self.emb_dim * 4,
 			hidden_dropout_prob=self.dropout,
 			attention_probs_dropout_prob=self.dropout,
-			max_position_embeddings=self.max_len,
+			max_position_embeddings=self.max_len + 2,
 			pad_token_id=self.pad_index,
 			position_embedding_type='absolute')
 		config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder_config, decoder_config)

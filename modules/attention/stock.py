@@ -27,6 +27,7 @@ class MultiHeadSelfAttention(nn.Module):
 		self.is_causal = is_causal
 		self.p_dropout = dropout
 		self.n_heads = n_heads
+		self.emb_dim = emb_dim
 		# combine q, k, v projections for efficiency
 		self.qkv_projection = nn.Linear(emb_dim, 3 * emb_dim, bias=bias)
 		# output projection
@@ -46,8 +47,11 @@ class MultiHeadSelfAttention(nn.Module):
 			mask = tok_mask
 			if self.is_causal:
 				causal_mask = torch.tril(torch.ones(T, T, dtype=torch.bool, device=x.device))
-				mask = mask & causal_mask[None, :, :]
-			y = nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=self.p_dropout)
+				mask = mask.unsqueeze(-1) & causal_mask.unsqueeze(0)
+			else:
+				mask = torch.einsum('bt,bT->btT', mask, mask)
+			mask = mask.unsqueeze(1).tile(1, self.n_heads, 1, 1)
+			y = nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, is_causal=self.is_causal)
 		# combine heads
 		y = y.transpose(1, 2).contiguous().view(B, T, C)
 		y = self.resid_dropout(self.c_proj(y))
@@ -106,9 +110,10 @@ class MultiHeadCrossAttention(nn.Module):
 			attn_mask = q_tok_mask & kv_tok_mask
 			is_special_attention = self.get_attention_args()['enable_math'] == False
 			if is_special_attention:
-				y = nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.p_dropout)
+				y = nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None)
 			else:
-				y = nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask , dropout_p=self.p_dropout)
+				attn_mask = attn_mask.unsqueeze(1).tile(1, self.n_heads, 1, 1)
+				y = nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.p_dropout)
 		# combine heads
 		y = y.transpose(1, 2).contiguous().view(B, T_q, C)
 		y = self.resid_dropout(self.c_proj(y))
