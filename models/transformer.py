@@ -71,13 +71,16 @@ class Transformer(pl.LightningModule):
 		logits = self.lm_head(dec)
 		return logits
 	
+	### UTILS ###
+
 	def calculate_loss(self, y_pred: Tensor, y_true: Tensor, prefix: str):
 		''' Calculate and log loss for a batch of predictions.'''
 		B, T = y_true.shape
 		loss = self.criterion(y_pred.view(B * T, -1), y_true.reshape(B * T))
 		# log the loss
-		self.log(f'{prefix}_loss', loss)
-		return loss
+		return {
+			f'{prefix}_loss': loss
+		}
 
 	def calculate_metrics(self, y_pred: Tensor, y_true: Tensor, prefix: str):
 		''' Calculate and log [accuracy] for a batch of predictions.'''
@@ -88,30 +91,63 @@ class Transformer(pl.LightningModule):
 		# calculate the metrics
 		accuracy = (y_pred == y_true).float().mean()
 		# log the metrics
-		self.log(f'{prefix}_accuracy', accuracy)
+		return {
+			f'{prefix}_accuracy': accuracy
+		}
+	
+	### STEPS ###
 
 	def training_step(self, batch: TransformerInputBatch, batch_idx: int):
 		y_pred = self(batch.x_src, batch.x_tgt, batch.x_src_mask, batch.x_tgt_mask)
-		self.calculate_metrics(y_pred, batch.y_tgt, 'train')
-		return self.calculate_loss(y_pred, batch.y_tgt, 'train')
+		metrics = self.calculate_metrics(y_pred, batch.y_tgt, 'train')
+		loss = self.calculate_loss(y_pred, batch.y_tgt, 'train')
+		logs = {**metrics, **loss}
+		self.log_dict(logs, prog_bar=True)
+		self.train_losses.append(loss['train_loss'].item())
+		return loss['train_loss']
 
 	def validation_step(self, batch: TransformerInputBatch, batch_idx: int):
 		y_pred = self(batch.x_src, batch.x_tgt, batch.x_src_mask, batch.x_tgt_mask)
-		self.calculate_metrics(y_pred, batch.y_tgt, 'val')
-		return self.calculate_loss(y_pred, batch.y_tgt, 'val')
+		metrics = self.calculate_metrics(y_pred, batch.y_tgt, 'val')
+		loss = self.calculate_loss(y_pred, batch.y_tgt, 'val')
+		logs = {**metrics, **loss}
+		self.log_dict(logs, prog_bar=True)
+		self.val_losses.append(loss['val_loss'].item())
+		return loss['val_loss']
 
 	def test_step(self, batch: TransformerInputBatch, batch_idx: int):
 		y_pred = self(batch.x_src, batch.x_tgt, batch.x_src_mask, batch.x_tgt_mask)
-		self.calculate_metrics(y_pred, batch.y_tgt, 'test')
-		return self.calculate_loss(y_pred, batch.y_tgt, 'test')
+		metrics = self.calculate_metrics(y_pred, batch.y_tgt, 'test')
+		loss = self.calculate_loss(y_pred, batch.y_tgt, 'test')
+		logs = {**metrics, **loss}
+		self.log_dict(logs, prog_bar=True)
+		return loss['test_loss']
 
 	def configure_optimizers(self):
 		optimizer = getattr(torch.optim, self.config.optimizer)
 		return optimizer(self.parameters(), lr=self.learning_rate)
 	
+	### HOOKS ###
+	
+	def on_train_epoch_start(self):
+		self.train_losses = []
+	
+	def on_validation_epoch_start(self):
+		self.val_losses = []
+	
+	def on_train_epoch_end(self):
+		loss = sum(self.train_losses) / len(self.train_losses)
+		print(f'Epoch {self.trainer.current_epoch} train loss:', loss)
+
+	def on_validation_epoch_end(self):
+		loss = sum(self.val_losses) / len(self.val_losses)
+		print(f'Epoch {self.trainer.current_epoch} val loss:', loss)
+	
 	def on_before_optimizer_step(self, optimizer):
 		norms = grad_norm(self, 2)
 		self.log_dict(norms)
+
+	### TRANSLATION ###
 	
 	@torch.inference_mode()
 	def translate(self, src: Tensor, bos_idx: int, eos_idx: int, temperature: float = 1.0, max_new_tokens: int = 1000):

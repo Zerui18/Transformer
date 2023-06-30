@@ -9,7 +9,8 @@ init_args:
   dropout: 0.1 # Applies to: post-attention, post-linear
   bias: false # Applies to: qkv projections in attention layers
   weight_tying: true
-  use_grad_ckpt: true
+  use_grad_ckpt: false
   pad_index: 3
   optimizer: AdamW
   learning_rate: 0.0005
+  attention_type: vanilla
