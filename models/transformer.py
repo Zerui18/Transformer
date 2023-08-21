@@ -232,20 +232,27 @@ class Transformer(pl.LightningModule):
 		tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
 		tgt_probs = torch.ones(beam_width, dtype=torch.float, device=self.device) # (B)
 
+		### EALRY STOPPING CRITERIA
+		eos_reached = torch.zeros(beam_width, dtype=torch.bool, device=self.device) # (B)
+
 		### BEAM SEARCH STAGE 1
 		# generate first batch of beams
 		logits = self.incremental_forward(enc, tgt, src_mask, tgt_mask) # (1, 1, C)
 		# get topk beams
 		logits = logits[0, 0, :] # (C)
 		_, topk_idx = torch.topk(logits, k=beam_width, dim=-1) # (B)
+		eos_reached = eos_reached | (topk_idx == eos_idx)
 		yield topk_idx.cpu().numpy()
 
 		### BEAM SEARCH STAGE 1+T
 		# Repeat the enc and tgt for each beam
 		enc = enc.repeat(beam_width, 1, 1) # (B, T, C)
 		tgt = torch.concat((tgt.repeat(beam_width, 1), topk_idx.unsqueeze(1)), dim=1) # (B, 2)
+
 		# extend the beams
 		for i in range(max_new_tokens-1):
+			if torch.all(eos_reached):
+				break
 			# clip tgt length
 			tgt = tgt[:, -self.config.max_len:]
 			# update tgt mask
@@ -259,8 +266,9 @@ class Transformer(pl.LightningModule):
 			joint_probs = tgt_probs.unsqueeze(1) * next_probs # (B, C)
 			# get the top k beams
 			topk_probs, topk_idx = torch.topk(joint_probs.flatten(), k=beam_width, dim=-1)
-			topk_idx = torch.tensor(np.stack(np.unravel_index(topk_idx.cpu().numpy(), joint_probs.shape))).T # (B, 2)
+			topk_idx = torch.tensor(np.stack(np.unravel_index(topk_idx.cpu().numpy(), joint_probs.shape)), device=self.device).T # (B, 2)
 			# update current beams
+			eos_reached = eos_reached | (topk_idx[:, 1] == eos_idx)
 			# grow tgt
 			tgt = torch.concat((tgt, torch.zeros((beam_width, 1), dtype=torch.long, device=self.device)), dim=1) # (B, T)
 			for (b, idx) in topk_idx:
