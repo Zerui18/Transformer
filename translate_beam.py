@@ -30,10 +30,10 @@ def stream_translate(stdscr, src: torch.Tensor):
 			beams = np.concatenate((beams, beam_bits), axis=-1)
 		# print the beam_bits
 		for i, bit in enumerate(beam_bits):
-			if int(bit) == 0:
-				continue
+			#if int(bit) == 0:
+			#	continue
 			text = tokenizer.IdToPiece(int(bit)).replace('▁', ' ')
-			stdscr.addstr(i, lengths[i], text)
+			stdscr.addstr(i * 2, lengths[i], text)
 			lengths[i] += len(text)
 		stdscr.refresh()
 	stdscr.getkey()

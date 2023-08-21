@@ -65,6 +65,16 @@ class Transformer(pl.LightningModule):
 		if config.weight_tying:
 			self.tgt_embeddings.token_embedding_table.weight = self.lm_head.logits_head.weight
 
+	def encoder_forward(self, src: Tensor, src_tok_mask: Tensor):
+		''' Forward pass through the encoder.'''
+		return self.encoder(self.src_embeddings(src), src_tok_mask)
+	
+	def incremental_forward(self, enc: Tensor, tgt: Tensor, src_tok_mask: Tensor, tgt_tok_mask: Tensor):
+		''' Forward pass through the decoder and lm head. Used in incremental decoding.'''
+		dec = self.decoder(enc, self.tgt_embeddings(tgt), src_tok_mask, tgt_tok_mask)
+		logits = self.lm_head(dec)
+		return logits
+
 	def forward(self, src: Tensor, tgt: Tensor, src_tok_mask: Tensor, tgt_tok_mask: Tensor):
 		''' Forward pass through the model.'''
 		enc = self.encoder(self.src_embeddings(src), src_tok_mask)
@@ -160,17 +170,24 @@ class Transformer(pl.LightningModule):
 		Yields:
 			int: next token in the sequence.
 		'''
+		assert sampling in ['multinomial', 'argmax'], f'Invalid sampling method: {sampling}'
 		# put self into eval mode
 		self.eval()
-		# init inputs
+
+		### ENCODER INPUTS
 		src = src.to(self.device).unsqueeze(0) # (1, T)
-		tgt = torch.tensor([bos_idx], dtype=torch.long, device=self.device).unsqueeze(0) # (1, 1)
 		src_mask = torch.ones_like(src, dtype=torch.bool, device=self.device)
+
+		### DECODER INPUTS
+		enc = self.encoder_forward(src[:, -self.config.max_len:], src_mask) # (1, T, C)
+		tgt = torch.tensor([bos_idx], dtype=torch.long, device=self.device).unsqueeze(0) # (1, 1)
+
+		### SAMPLING STAGE
 		for i in range(max_new_tokens):
 			# update tgt mask
 			tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
 			# get the predictions
-			logits = self(src[:, -self.config.max_len:], tgt[:, -self.config.max_len:], src_mask, tgt_mask) # (1, T, C)
+			logits = self.incremental_forward(enc, tgt[:, -self.config.max_len:], src_mask, tgt_mask) # (1, T, C)
 			# focus only on the last time step
 			logits = logits[:, -1, :] #(1, C)
 			logits /= temperature
@@ -204,31 +221,37 @@ class Transformer(pl.LightningModule):
 		'''
 		# put self into eval mode
 		self.eval()
-		# init inputs
+		
+		### ENCODER INPUTS
 		src = src.to(self.device).unsqueeze(0) # (1, T)
-		tgt = torch.tensor([[bos_idx]], dtype=torch.long, device=self.device) # (1, 1)
-		tgt_probs = torch.ones(beam_width, dtype=torch.float, device=self.device) # (B)
 		src_mask = torch.ones_like(src, dtype=torch.bool, device=self.device)
-		# generate first batch of beams
+
+		### DECODER INPUTS
+		enc = self.encoder_forward(src[:, -self.config.max_len:], src_mask) # (1, T, C)
+		tgt = torch.tensor([[bos_idx]], dtype=torch.long, device=self.device) # (1, 1)
 		tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
-		logits = self(src[:, -self.config.max_len:], tgt, src_mask, tgt_mask) # (1, T, C)
+		tgt_probs = torch.ones(beam_width, dtype=torch.float, device=self.device) # (B)
+
+		### BEAM SEARCH STAGE 1
+		# generate first batch of beams
+		logits = self.incremental_forward(enc, tgt, src_mask, tgt_mask) # (1, 1, C)
 		# get topk beams
-		logits = logits[0, -1, :] # (C)
+		logits = logits[0, 0, :] # (C)
 		_, topk_idx = torch.topk(logits, k=beam_width, dim=-1) # (B)
 		yield topk_idx.cpu().numpy()
-		# update tgt
+
+		### BEAM SEARCH STAGE 1+T
+		# Repeat the enc and tgt for each beam
+		enc = enc.repeat(beam_width, 1, 1) # (B, T, C)
 		tgt = torch.concat((tgt.repeat(beam_width, 1), topk_idx.unsqueeze(1)), dim=1) # (B, 2)
-		# repeat src & src mask
-		src = src.repeat(beam_width, 1) # (B, T)
-		src_mask = src_mask.repeat(beam_width, 1) # (B, T)
 		# extend the beams
 		for i in range(max_new_tokens-1):
-			# grow tgt
-			tgt = torch.concat((tgt, torch.zeros((beam_width, 1), dtype=torch.long, device=self.device)), dim=1) # (B, T)
+			# clip tgt length
+			tgt = tgt[:, -self.config.max_len:]
 			# update tgt mask
 			tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
 			# get the predictions
-			logits = self(src[:, -self.config.max_len:], tgt[:, -self.config.max_len:], src_mask, tgt_mask) # (B, T, C)
+			logits = self.incremental_forward(enc, tgt, src_mask, tgt_mask) # (B, T, C)
 			# focus only on the last time step
 			logits = logits[:, -1, :] #(B, C)
 			next_probs = F.softmax(logits, dim=-1)
@@ -238,6 +261,8 @@ class Transformer(pl.LightningModule):
 			topk_probs, topk_idx = torch.topk(joint_probs.flatten(), k=beam_width, dim=-1)
 			topk_idx = torch.tensor(np.stack(np.unravel_index(topk_idx.cpu().numpy(), joint_probs.shape))).T # (B, 2)
 			# update current beams
+			# grow tgt
+			tgt = torch.concat((tgt, torch.zeros((beam_width, 1), dtype=torch.long, device=self.device)), dim=1) # (B, T)
 			for (b, idx) in topk_idx:
 				tgt[b, -1] = idx
 				tgt_probs[b] = topk_probs[b]

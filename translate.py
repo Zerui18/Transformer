@@ -22,7 +22,7 @@ while True:
 	# translate, printing each new token to stdout
 	print('Translation: ')
 	tokens = []
-	for token in model.translate_with_sampling(src, BOS_IDX, EOS_IDX, max_new_tokens=100):
+	for token in model.translate_with_sampling(src, BOS_IDX, EOS_IDX, sampling='argmax', max_new_tokens=100):
 		tokens.append(token)
 		print(tokenizer.IdToPiece(token), end='')
 	print()
