@@ -1,0 +1,18 @@
+train:
+  ds_class: TranslationDatasetSpacyMulti30K
+  ds_init_args:
+    src_language: de
+    tgt_language: en
+    split: train
+  dl_init_args:
+    batch_size: 64
+    shuffle: true
+valid:
+  ds_class: TranslationDatasetSpacyMulti30K
+  ds_init_args:
+    src_language: de
+    tgt_language: en
+    split: valid
+  dl_init_args:
+    batch_size: 128
+    shuffle: false

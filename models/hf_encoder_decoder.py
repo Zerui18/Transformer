@@ -6,6 +6,8 @@ import pytorch_lightning as pl
 from transformers import EncoderDecoderConfig, EncoderDecoderModel
 from transformers import BertConfig
 from dataclasses import dataclass
+from pytorch_lightning.utilities import grad_norm
+
 
 ### CONFIG ###
 
@@ -79,26 +81,26 @@ class HFEncoderDecoder(pl.LightningModule):
 		# setup sample input for tracing
 		self.example_input_array = (torch.zeros(1, config.max_len, dtype=torch.long),
 			      					torch.zeros(1, config.max_len, dtype=torch.long),
-									torch.zeros(1, 1, config.max_len, dtype=torch.long),
-									torch.zeros(1, 1, config.max_len, dtype=torch.long))
+									torch.zeros(1, config.max_len, dtype=torch.long),
+									torch.zeros(1, config.max_len, dtype=torch.long))
 		# model parts
 		self.model = EncoderDecoderModel(config.make_hf_config())
 
 	def forward(self, src: Tensor, tgt: Tensor, src_tok_mask: Tensor, tgt_tok_mask: Tensor):
 		''' Forward pass through the model.'''
-		# squeeze the -2 dim of the masks
-		src_tok_mask = src_tok_mask.squeeze(-2)
-		tgt_tok_mask = tgt_tok_mask.squeeze(-2)
 		output = self.model(input_ids=src, decoder_input_ids=tgt, attention_mask=src_tok_mask, decoder_attention_mask=tgt_tok_mask)
 		return output.logits
 	
+	### UTILS ###
+
 	def calculate_loss(self, y_pred: Tensor, y_true: Tensor, prefix: str):
 		''' Calculate and log loss for a batch of predictions.'''
 		B, T = y_true.shape
 		loss = self.criterion(y_pred.view(B * T, -1), y_true.reshape(B * T))
 		# log the loss
-		self.log(f'{prefix}_loss', loss)
-		return loss
+		return {
+			f'{prefix}_loss': loss
+		}
 
 	def calculate_metrics(self, y_pred: Tensor, y_true: Tensor, prefix: str):
 		''' Calculate and log [accuracy] for a batch of predictions.'''
@@ -107,32 +109,65 @@ class HFEncoderDecoder(pl.LightningModule):
 		y_pred = y_pred.view(B * T, -1).argmax(dim=-1)
 		y_true = y_true.reshape(B * T)
 		# calculate the metrics
-		# masked accuracy
-		non_padding_idx = y_true != self.config.pad_index
-		y_pred = y_pred[non_padding_idx]
-		y_true = y_true[non_padding_idx]
 		accuracy = (y_pred == y_true).float().mean()
 		# log the metrics
-		self.log(f'{prefix}_accuracy', accuracy)
+		return {
+			f'{prefix}_accuracy': accuracy
+		}
+	
+	### STEPS ###
 
 	def training_step(self, batch: TransformerInputBatch, batch_idx: int):
 		y_pred = self(batch.x_src, batch.x_tgt, batch.x_src_mask, batch.x_tgt_mask)
-		self.calculate_metrics(y_pred, batch.y_tgt, 'train')
-		return self.calculate_loss(y_pred, batch.y_tgt, 'train')
+		metrics = self.calculate_metrics(y_pred, batch.y_tgt, 'train')
+		loss = self.calculate_loss(y_pred, batch.y_tgt, 'train')
+		logs = {**metrics, **loss}
+		self.log_dict(logs, prog_bar=True)
+		self.train_losses.append(loss['train_loss'].item())
+		return loss['train_loss']
 
 	def validation_step(self, batch: TransformerInputBatch, batch_idx: int):
 		y_pred = self(batch.x_src, batch.x_tgt, batch.x_src_mask, batch.x_tgt_mask)
-		self.calculate_metrics(y_pred, batch.y_tgt, 'val')
-		return self.calculate_loss(y_pred, batch.y_tgt, 'val')
+		metrics = self.calculate_metrics(y_pred, batch.y_tgt, 'val')
+		loss = self.calculate_loss(y_pred, batch.y_tgt, 'val')
+		logs = {**metrics, **loss}
+		self.log_dict(logs, prog_bar=True)
+		self.val_losses.append(loss['val_loss'].item())
+		return loss['val_loss']
 
 	def test_step(self, batch: TransformerInputBatch, batch_idx: int):
 		y_pred = self(batch.x_src, batch.x_tgt, batch.x_src_mask, batch.x_tgt_mask)
-		self.calculate_metrics(y_pred, batch.y_tgt, 'test')
-		return self.calculate_loss(y_pred, batch.y_tgt, 'test')
+		metrics = self.calculate_metrics(y_pred, batch.y_tgt, 'test')
+		loss = self.calculate_loss(y_pred, batch.y_tgt, 'test')
+		logs = {**metrics, **loss}
+		self.log_dict(logs, prog_bar=True)
+		return loss['test_loss']
 
 	def configure_optimizers(self):
 		optimizer = getattr(torch.optim, self.config.optimizer)
 		return optimizer(self.parameters(), lr=self.learning_rate)
+	
+	### HOOKS ###
+	
+	def on_train_epoch_start(self):
+		self.train_losses = []
+	
+	def on_validation_epoch_start(self):
+		self.val_losses = []
+	
+	def on_train_epoch_end(self):
+		loss = sum(self.train_losses) / len(self.train_losses)
+		print(f'Epoch {self.trainer.current_epoch} train loss:', loss)
+
+	def on_validation_epoch_end(self):
+		loss = sum(self.val_losses) / len(self.val_losses)
+		print(f'Epoch {self.trainer.current_epoch} val loss:', loss)
+	
+	def on_before_optimizer_step(self, optimizer):
+		norms = grad_norm(self, 2)
+		self.log_dict(norms)
+
+	### TRANSLATION ###
 	
 	@torch.inference_mode()
 	def translate(self, src: Tensor, bos_idx: int, eos_idx: int, temperature: float = 1.0, max_new_tokens: int = 1000):

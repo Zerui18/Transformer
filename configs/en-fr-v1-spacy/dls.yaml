@@ -9,7 +9,7 @@ train:
     tgt_file: data/un/undoc.2000.fr-en.fr
     max_seq_len: 256
   dl_init_args:
-    batch_size: 64
+    batch_size: 16
     shuffle: true
 valid:
   ds_class: TranslationDatasetSpacy
@@ -23,5 +23,5 @@ valid:
     max_seq_len: 256
     first_n_lines: 10000
   dl_init_args:
-    batch_size: 128
+    batch_size: 32
     shuffle: false

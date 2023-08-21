@@ -224,9 +224,10 @@ class Experiment:
 		self._experiment_stopper = ExperimentStopper(self._state)
 		val_loss_ckpt = ModelCheckpoint(
 			self.directory / 'checkpoints/',
-			filename='model-{epoch:02d}-{val_loss:.2f}',
+			filename='model-{epoch}-{step}-{val_loss:.2f}',
 			mode='min',
-			monitor='val_loss',
+			monitor='train_loss',
+			every_n_train_steps=1000,
 			save_top_k=2)
 		# init logger
 		logger = TensorBoardLogger(self.directory, name='', default_hp_metric=False, log_graph=False)

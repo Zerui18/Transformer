@@ -1,0 +1,26 @@
+train:
+  ds_class: TranslationDatasetSpacy
+  ds_init_args:
+    src_model: de_core_news_sm
+    tgt_model: en_core_web_sm
+    src_vocab_file: data/multi30k/de.vocab.pkl
+    tgt_vocab_file: data/multi30k/en.vocab.pkl
+    src_file: data/multi30k/train.de
+    tgt_file: data/multi30k/train.en
+    max_seq_len: 512
+  dl_init_args:
+    batch_size: 64
+    shuffle: true
+valid:
+  ds_class: TranslationDatasetSpacy
+  ds_init_args:
+    src_model: de_core_news_sm
+    tgt_model: en_core_web_sm
+    src_vocab_file: data/multi30k/de.vocab.pkl
+    tgt_vocab_file: data/multi30k/en.vocab.pkl
+    src_file: data/multi30k/val.de
+    tgt_file: data/multi30k/val.en
+    max_seq_len: 512
+  dl_init_args:
+    batch_size: 128
+    shuffle: false

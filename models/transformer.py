@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -150,14 +151,14 @@ class Transformer(pl.LightningModule):
 	### TRANSLATION ###
 	
 	@torch.inference_mode()
-	def translate(self, src: Tensor, bos_idx: int, eos_idx: int, temperature: float = 1.0, max_new_tokens: int = 1000):
-		''' Generator function that translates a source sentence into a target sentence.
+	def translate_with_sampling(self, src: Tensor, bos_idx: int, eos_idx: int, sampling: str = 'multinomial', temperature: float = 1.0, max_new_tokens: int = 1000):
+		''' Generator function that translates a source sentence into a target sentence using sampling.
 		
 		Input:
 			`src`: Tensor<Float>[T_in] input src tensor.
-		
-		Output:
-			Tensor<Float>[T_out] output tgt tensor.
+
+		Yields:
+			int: next token in the sequence.
 		'''
 		# put self into eval mode
 		self.eval()
@@ -175,15 +176,72 @@ class Transformer(pl.LightningModule):
 			logits /= temperature
 			probs = F.softmax(logits, dim=-1)
 			# sample from the distribution
-			idx_next = torch.argmax(probs, dim=-1, keepdim=True) # (1, 1)
+			if sampling == 'multinomial':
+				idx_next = torch.multinomial(probs, num_samples=1)
+			elif sampling == 'argmax':
+				idx_next = torch.argmax(probs, dim=-1, keepdim=True) # (1, 1)
 			# append sampled index to the running sequence
 			tgt = torch.cat((tgt, idx_next), dim=1) # (1, T)
 			# yield the current token
 			token = int(idx_next[0].cpu().numpy())
-			# print(f'{i}:', idx_next[0], token)
-			# yield f'{idx_next[0]}: {token} \n'
 			yield token
 			# stop if the last token is the EOS token
 			if token == eos_idx:
 				break
-		return tgt[0]
+	
+	@torch.inference_mode()
+	def translate_with_beams(self, src: Tensor, bos_idx: int, eos_idx: int, beam_width: int = 16, max_new_tokens: int = 1000):
+		''' Generator function that translates a source sentence into a target sentence using beam search.
+		
+		Input:
+			`src`: Tensor<Float>[T_in] input src tensor.
+		
+		Yields:
+			Tensor<Long>[Beam_Width] next token in the sequence for all beams.
+		
+		Output:
+			Tensor<Float>[Beam_Width, T_out] all beams.
+		'''
+		# put self into eval mode
+		self.eval()
+		# init inputs
+		src = src.to(self.device).unsqueeze(0) # (1, T)
+		tgt = torch.tensor([[bos_idx]], dtype=torch.long, device=self.device) # (1, 1)
+		tgt_probs = torch.ones(beam_width, dtype=torch.float, device=self.device) # (B)
+		src_mask = torch.ones_like(src, dtype=torch.bool, device=self.device)
+		# generate first batch of beams
+		tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
+		logits = self(src[:, -self.config.max_len:], tgt, src_mask, tgt_mask) # (1, T, C)
+		# get topk beams
+		logits = logits[0, -1, :] # (C)
+		_, topk_idx = torch.topk(logits, k=beam_width, dim=-1) # (B)
+		yield topk_idx.cpu().numpy()
+		# update tgt
+		tgt = torch.concat((tgt.repeat(beam_width, 1), topk_idx.unsqueeze(1)), dim=1) # (B, 2)
+		# repeat src & src mask
+		src = src.repeat(beam_width, 1) # (B, T)
+		src_mask = src_mask.repeat(beam_width, 1) # (B, T)
+		# extend the beams
+		for i in range(max_new_tokens-1):
+			# grow tgt
+			tgt = torch.concat((tgt, torch.zeros((beam_width, 1), dtype=torch.long, device=self.device)), dim=1) # (B, T)
+			# update tgt mask
+			tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
+			# get the predictions
+			logits = self(src[:, -self.config.max_len:], tgt[:, -self.config.max_len:], src_mask, tgt_mask) # (B, T, C)
+			# focus only on the last time step
+			logits = logits[:, -1, :] #(B, C)
+			next_probs = F.softmax(logits, dim=-1)
+			# form the new beams
+			joint_probs = tgt_probs.unsqueeze(1) * next_probs # (B, C)
+			# get the top k beams
+			topk_probs, topk_idx = torch.topk(joint_probs.flatten(), k=beam_width, dim=-1)
+			topk_idx = torch.tensor(np.stack(np.unravel_index(topk_idx.cpu().numpy(), joint_probs.shape))).T # (B, 2)
+			# update current beams
+			for (b, idx) in topk_idx:
+				tgt[b, -1] = idx
+				tgt_probs[b] = topk_probs[b]
+			yield tgt[:, -1].cpu().numpy()
+			# stop if all the last token are the EOS token
+			if torch.all(tgt == eos_idx):
+				break
