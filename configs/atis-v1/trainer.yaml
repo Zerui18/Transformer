@@ -1,0 +1,6 @@
+max_steps: 51 # x4 epochs
+val_check_interval: 51 # 1 epoch
+check_val_every_n_epoch: null
+accumulate_grad_batches: 4
+log_every_n_steps: 51 # 1 epoch
+gradient_clip_val: 10.0

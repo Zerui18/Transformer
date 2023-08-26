@@ -1,0 +1,20 @@
+train:
+  ds_class: ATISDataset
+  ds_init_args:
+    sp_model: data/atis/atis_3000.model
+    mel_dir: data/atis/mel_normalised/train
+    transcripts_file: data/atis/train.txt
+    max_seq_len: 512
+  dl_init_args:
+    batch_size: 64
+    shuffle: true
+valid:
+  ds_class: ATISDataset
+  ds_init_args:
+    sp_model: data/atis/atis_3000.model
+    mel_dir: data/atis/mel_normalised/test
+    transcripts_file: data/atis/test.txt
+    max_seq_len: 512
+  dl_init_args:
+    batch_size: 64
+    shuffle: false

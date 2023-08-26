@@ -18,7 +18,7 @@ class PositionalEmbedding(nn.Module):
 		self.register_buffer('encoding', encoding)
 
 	def forward(self, x: Tensor):
-		return self.encoding[:x.size(0)]
+		return self.encoding[:x]
 
 class PosNTokEmbedding(nn.Module):
 	''' Apply learnable token and sinosuidal position embeddings to input tokens. '''
@@ -31,5 +31,5 @@ class PosNTokEmbedding(nn.Module):
 	
 	def forward(self, x: Tensor):
 		tok_embd = self.token_embedding_table(x)
-		pos_embd = self.position_embedding_table(torch.arange(x.size(1), device=x.device))
+		pos_embd = self.position_embedding_table(torch.tensor(x.size(1), dtype=torch.long, device=x.device))
 		return tok_embd + pos_embd
