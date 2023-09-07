@@ -19,7 +19,7 @@ class ATISDatasetConfig:
 	sp_model: str
 	mel_dir: str
 	transcripts_file: str
-	max_seq_len: int
+	dec_max_len: int
 	first_n_lines: int = None
 
 ### DATASET ###
@@ -33,7 +33,7 @@ class ATISDataset(BaseDataset):
 
 	def __init__(self, config: ATISDatasetConfig):
 		super().__init__()
-		self.max_seq_len = config.max_seq_len
+		self.max_seq_len = config.dec_max_len
 		print('DS INIT:', config)
 		# read transcripts
 		with open(config.transcripts_file, encoding='utf8') as f:

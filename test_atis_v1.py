@@ -4,9 +4,9 @@ from exp.manager import ExperimentManager, ExperimentConfig
 
 exp_manager = ExperimentManager(Path('experiments/atis-v1'), single_process=True)
 
-N_BLOCKS = [4, 5, 6]
-N_CNN_LAYERS = [2, 3, 4]
-VOCAB_SIZE = [1000, 2000, 3000]
+N_BLOCKS = [6]
+N_CNN_LAYERS = [3]
+VOCAB_SIZE = [1000]
 
 for n_blocks, n_cnn_layers, vocab_size in product(N_BLOCKS, N_CNN_LAYERS, VOCAB_SIZE):
 	config = ExperimentConfig.from_config_files(f'configs/atis-v1/model.yaml',

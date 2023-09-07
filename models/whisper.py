@@ -1,4 +1,5 @@
 import numpy as np
+import math
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -14,21 +15,24 @@ from pytorch_lightning.utilities import grad_norm
 
 @dataclass
 class WhisperConfig:
-    n_cnn_layers: int
-    enc_max_len: int
-    dec_max_len: int
-    vocab_size: int
-    n_blocks: int
-    n_heads: int
-    emb_dim: int
-    dropout: float
-    bias: bool
-    weight_tying: bool
-    use_grad_ckpt: bool
-    pad_index: int
-    optimizer: str
-    learning_rate: float
-    attention_type: str = 'vanilla'
+	n_cnn_layers: int
+	enc_max_len: int
+	dec_max_len: int
+	vocab_size: int
+	n_blocks: int
+	n_heads: int
+	emb_dim: int
+	dropout: float
+	bias: bool
+	weight_tying: bool
+	use_grad_ckpt: bool
+	pad_index: int
+	optimizer: str
+	learning_rate: float
+	attention_type: str = 'vanilla'
+	# instruct the attention layers to output the attention weights as their second return value
+	# to be used in conjunction with forward hooks on the attention layers
+	output_attention: bool = False
 
 ### INPUT ###
 
@@ -62,12 +66,24 @@ class Whisper(pl.LightningModule):
 		self.mel_pos_embedding = PositionalEmbedding(config.emb_dim, config.enc_max_len)
 		self.transcript_embeddings = PosNTokEmbedding(config.vocab_size, config.emb_dim, config.dec_max_len)
 		self.audio_encoder = AudioEncoder(config.n_cnn_layers, 3, config.emb_dim)
-		self.encoder = TransformerEncoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt, config.attention_type)
-		self.decoder = TransformerDecoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt, config.attention_type)
+		self.encoder = TransformerEncoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt, config.attention_type, config.output_attention)
+		self.decoder = TransformerDecoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt, config.attention_type, config.output_attention)
 		self.lm_head = TransformerLMHead(config.emb_dim, config.vocab_size)
 		# weight tying
 		if config.weight_tying:
 			self.transcript_embeddings.token_embedding_table.weight = self.lm_head.logits_head.weight
+		# attention hooking
+		if config.output_attention:
+			self.attention_weights = {}
+			self.hook_attention_layers()
+
+	def hook_attention_layers(self):
+		''' Hook the attention layers to output their attention weights. '''
+		def hook_attention_layer(module, input, output):
+			self.attention_weights[module.tag] = output[1]
+		for module in self.modules():
+			if type(module).__name__ == 'MultiHeadSelfAttention' or type(module).__name__ == 'MultiHeadCrossAttention':
+				module.register_forward_hook(hook_attention_layer)
 
 	def encoder_forward(self, src: Tensor, src_tok_mask: Tensor):
 		''' Forward pass through the encoder.'''
@@ -175,7 +191,7 @@ class Whisper(pl.LightningModule):
 		''' Generator function that translates a source sentence into a target sentence using sampling.
 		
 		Input:
-			`src`: Tensor<Float>[T_in] input src tensor.
+			`src`: Tensor<Float>[T_in, M] input src tensor.
 
 		Yields:
 			int: next token in the sequence.
@@ -185,11 +201,11 @@ class Whisper(pl.LightningModule):
 		self.eval()
 
 		### ENCODER INPUTS
-		src = src.to(self.device).unsqueeze(0) # (1, T)
-		src_mask = torch.ones_like(src, dtype=torch.bool, device=self.device)
+		src = src.to(self.device).unsqueeze(0) # (1, T_in, M)
+		src_mask = torch.ones((1, math.ceil(src.size(1)/2)), dtype=torch.bool, device=self.device)
 
 		### DECODER INPUTS
-		enc = self.encoder_forward(src[:, -self.config.max_len:], src_mask) # (1, T, C)
+		enc = self.encoder_forward(src[:, -self.config.enc_max_len:], src_mask) # (1, T, C)
 		tgt = torch.tensor([bos_idx], dtype=torch.long, device=self.device).unsqueeze(0) # (1, 1)
 
 		### SAMPLING STAGE
@@ -197,7 +213,7 @@ class Whisper(pl.LightningModule):
 			# update tgt mask
 			tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
 			# get the predictions
-			logits = self.incremental_forward(enc, tgt[:, -self.config.max_len:], src_mask, tgt_mask) # (1, T, C)
+			logits = self.incremental_forward(enc, tgt[:, -self.config.dec_max_len:], src_mask, tgt_mask) # (1, T, C)
 			# focus only on the last time step
 			logits = logits[:, -1, :] #(1, C)
 			logits /= temperature
@@ -221,7 +237,7 @@ class Whisper(pl.LightningModule):
 		''' Generator function that translates a source sentence into a target sentence using beam search.
 		
 		Input:
-			`src`: Tensor<Float>[T_in] input src tensor.
+			`src`: Tensor<Float>[T_in, M] input src tensor.
 		
 		Yields:
 			Tensor<Long>[Beam_Width] next token in the sequence for all beams.
@@ -233,11 +249,11 @@ class Whisper(pl.LightningModule):
 		self.eval()
 		
 		### ENCODER INPUTS
-		src = src.to(self.device).unsqueeze(0) # (1, T)
-		src_mask = torch.ones_like(src, dtype=torch.bool, device=self.device)
+		src = src.to(self.device).unsqueeze(0) # (1, T, M)
+		src_mask = torch.ones((1, math.ceil(src.size(1)/2)), dtype=torch.bool, device=self.device)
 
 		### DECODER INPUTS
-		enc = self.encoder_forward(src[:, -self.config.max_len:], src_mask) # (1, T, C)
+		enc = self.encoder_forward(src[:, -self.config.enc_max_len:], src_mask) # (1, T, C)
 		tgt = torch.tensor([[bos_idx]], dtype=torch.long, device=self.device) # (1, 1)
 		tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
 		tgt_probs = torch.ones(beam_width, dtype=torch.float, device=self.device) # (B)
@@ -264,7 +280,7 @@ class Whisper(pl.LightningModule):
 			if torch.all(eos_reached):
 				break
 			# clip tgt length
-			tgt = tgt[:, -self.config.max_len:]
+			tgt = tgt[:, -self.config.dec_max_len:]
 			# update tgt mask
 			tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
 			# get the predictions

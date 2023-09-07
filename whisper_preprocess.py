@@ -99,9 +99,10 @@ def calc_mel_stats(args):
 	mels_1d = np.concatenate([mel.flatten() for mel in mels])
 	mean = np.mean(mels_1d)
 	var = np.var(mels_1d)
+	abs_max = np.max(np.abs(mels_1d))
 	# write to file
 	with open(output_file, 'wb') as f:
-		np.save(f, np.array([mean, var]))
+		np.save(f, np.array([mean, var, abs_max]))
 
 ### NORM MEL ###
 def norm_mel_worker(args: dict):
@@ -112,7 +113,7 @@ def norm_mel_worker(args: dict):
 	# load mel
 	mel = np.load(mel_path)
 	# normalize
-	mel = (mel - stats[0]) / stats[1]
+	mel = (mel - stats[0]) / stats[2]
 	# write to file
 	output_path = output_dir / mel_path.name
 	np.save(output_path, mel)

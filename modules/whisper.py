@@ -10,7 +10,7 @@ class AudioEncoder(nn.Module):
 		self.kernel_size = kernel_size
 		self.n_filters = n_filters
 		self.convs = nn.ModuleList([
-			nn.Conv1d((n_filters if i > 0 else n_mels), n_filters, kernel_size, stride=(1 if i < n_layers-1 else 2), padding=1)
+			nn.Conv1d((n_filters if i > 0 else n_mels), n_filters, kernel_size, stride=(1 if i < n_layers-1 else 2), padding=1, bias=False)
 			for i in range(n_layers)
 		])
 

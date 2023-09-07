@@ -1,0 +1,16 @@
+class: Transformer
+init_args:
+  bias: false
+  dropout: 0.1
+  emb_dim: 512
+  learning_rate: 0.0005
+  max_len: 512
+  n_blocks: 6
+  n_heads: 8
+  optimizer: AdamW
+  pad_index: 3
+  src_vocab_size: 15000
+  tgt_vocab_size: 15000
+  use_grad_ckpt: false
+  weight_tying: false
+  output_attention: true

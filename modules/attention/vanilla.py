@@ -16,11 +16,13 @@ class MultiHeadSelfAttention(nn.Module):
 		Tensor<Float>[B, T, C] output tensor.
 	'''
 
-	def __init__(self, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, is_causal: bool = False):
+	def __init__(self, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, is_causal: bool = False, output_attention: bool = False, tag: str = ''):
 		super().__init__()
 		self.is_causal = is_causal
 		self.n_heads = n_heads
 		self.emb_dim = emb_dim
+		self.output_attention = output_attention
+		self.tag = tag
 		self.attn_dropout = nn.Dropout(dropout)
 		self.resid_dropout = nn.Dropout(dropout)
 		# combine q, k, v projections for efficiency
@@ -47,12 +49,17 @@ class MultiHeadSelfAttention(nn.Module):
 			mask = mask & causal_mask[None, None, :, :]
 		att_weights = att_weights.masked_fill(mask == 0, -1e9)
 		att_weights = nn.functional.softmax(att_weights, dim=-1)
+		if self.output_attention:
+			cp_att_weights = att_weights.detach().clone()
 		att_weights = self.attn_dropout(att_weights)
 		y = att_weights @ v
 		# combine heads
 		y = y.transpose(1, 2).contiguous().view(B, T, C)
 		y = self.resid_dropout(self.c_proj(y))
-		return y
+		if self.output_attention:
+			return y, cp_att_weights
+		else:
+			return y
 
 class MultiHeadCrossAttention(nn.Module):
 
@@ -69,10 +76,12 @@ class MultiHeadCrossAttention(nn.Module):
 		Tensor<Float>[B, T_q, C] output tensor.
 	'''
 
-	def __init__(self, n_heads: int, emb_dim: int, dropout: float, bias: bool = False):
+	def __init__(self, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, output_attention: bool = False, tag: str = ''):
 		super().__init__()
 		self.n_heads = n_heads
 		self.emb_dim = emb_dim
+		self.output_attention = output_attention
+		self.tag = tag
 		self.attn_dropout = nn.Dropout(dropout)
 		self.resid_dropout = nn.Dropout(dropout)
 		self.q_projection = nn.Linear(emb_dim, emb_dim, bias=bias)
@@ -100,9 +109,14 @@ class MultiHeadCrossAttention(nn.Module):
 		# apply mask
 		att_weights = att_weights.masked_fill(attn_mask.unsqueeze(1) == 0, -1e9)
 		att_weights = nn.functional.softmax(att_weights, dim=-1)
+		if self.output_attention:
+			cp_att_weights = att_weights.detach().clone()
 		att_weights = self.attn_dropout(att_weights)
 		y = att_weights @ v
 		# combine heads
 		y = y.transpose(1, 2).contiguous().view(B, T_q, C)
 		y = self.resid_dropout(self.c_proj(y))
-		return y
+		if self.output_attention:
+			return y, cp_att_weights
+		else:
+			return y

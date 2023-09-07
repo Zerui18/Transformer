@@ -215,8 +215,8 @@ class Experiment:
 		self.model = cls(config_cls(**init_args))
 		# compile model
 		# TBD: compile on demand
-		# import torch
-		# self.model = torch.compile(self.model)
+		#import torch
+		#self.model = torch.compile(self.model)
 
 	def _init_trainer(self):
 		trainer_config = self.config.trainer_config
@@ -227,8 +227,9 @@ class Experiment:
 			filename='model-{epoch}-{step}-{val_loss:.2f}',
 			mode='min',
 			monitor='train_loss',
-			every_n_train_steps=1000,
-			save_top_k=2)
+			every_n_train_steps=trainer_config.pop('model_checkpoint_interval'),
+			save_top_k=2,
+			save_last=True,)
 		# init logger
 		logger = TensorBoardLogger(self.directory, name='', default_hp_metric=False, log_graph=False)
 		self.trainer = Trainer(accelerator='gpu', devices=1,

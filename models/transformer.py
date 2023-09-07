@@ -13,20 +13,21 @@ from pytorch_lightning.utilities import grad_norm
 
 @dataclass
 class TransformerConfig:
-    max_len: int
-    src_vocab_size: int
-    tgt_vocab_size: int
-    n_blocks: int
-    n_heads: int
-    emb_dim: int
-    dropout: float
-    bias: bool
-    weight_tying: bool
-    use_grad_ckpt: bool
-    pad_index: int
-    optimizer: str
-    learning_rate: float
-    attention_type: str = 'vanilla'
+	max_len: int
+	src_vocab_size: int
+	tgt_vocab_size: int
+	n_blocks: int
+	n_heads: int
+	emb_dim: int
+	dropout: float
+	bias: bool
+	weight_tying: bool
+	use_grad_ckpt: bool
+	pad_index: int
+	optimizer: str
+	learning_rate: float
+	attention_type: str = 'vanilla'
+	output_attention: bool = False
 
 ### INPUT ###
 
@@ -58,12 +59,25 @@ class Transformer(pl.LightningModule):
 		# model parts
 		self.src_embeddings = PosNTokEmbedding(config.src_vocab_size, config.emb_dim, config.max_len)
 		self.tgt_embeddings = PosNTokEmbedding(config.tgt_vocab_size, config.emb_dim, config.max_len)
-		self.encoder = TransformerEncoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt, config.attention_type)
-		self.decoder = TransformerDecoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt, config.attention_type)
+		self.encoder = TransformerEncoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt, config.attention_type, config.output_attention)
+		self.decoder = TransformerDecoder(config.n_blocks, config.n_heads, config.emb_dim, config.dropout, config.bias, config.use_grad_ckpt, config.attention_type, config.output_attention)
 		self.lm_head = TransformerLMHead(config.emb_dim, config.tgt_vocab_size)
 		# weight tying
 		if config.weight_tying:
 			self.tgt_embeddings.token_embedding_table.weight = self.lm_head.logits_head.weight
+		# attention hooking
+		if config.output_attention:
+			self.attention_weights = {}
+			self.hook_attention_layers()
+
+
+	def hook_attention_layers(self):
+		''' Hook the attention layers to output their attention weights. '''
+		def hook_attention_layer(module, input, output):
+			self.attention_weights[module.tag] = output[1]
+		for module in self.modules():
+			if type(module).__name__ == 'MultiHeadSelfAttention' or type(module).__name__ == 'MultiHeadCrossAttention':
+				module.register_forward_hook(hook_attention_layer)
 
 	def encoder_forward(self, src: Tensor, src_tok_mask: Tensor):
 		''' Forward pass through the encoder.'''
