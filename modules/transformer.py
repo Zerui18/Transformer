@@ -23,6 +23,7 @@ class TransformerEncoderBlock(nn.Module):
 
 	def __init__(self, idx: int, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, attention_type: str = 'vanilla', output_attention: bool = False):
 		super().__init__()
+		self.output_attention = output_attention
 		attn_module = import_module(f'..attention.{attention_type}', __name__)
 		sa_class = getattr(attn_module, 'MultiHeadSelfAttention')
 		self.sa_module = sa_class(n_heads, emb_dim, dropout, bias, is_causal=False, output_attention=output_attention, tag=f'encoder_sa_{idx}')
@@ -32,8 +33,11 @@ class TransformerEncoderBlock(nn.Module):
 
 	
 	def forward(self, src: Tensor, src_mask: Tensor):
-		x = src + self.sa_module(self.ln1(src), src_mask)[0]
-		x = x + self.fw_module(self.ln2(src))
+		if self.output_attention:
+			x = src + self.sa_module(self.ln1(src), src_mask)[0]
+		else:
+			x = src + self.sa_module(self.ln1(src), src_mask)
+		x = x + self.fw_module(self.ln2(x))
 		return x
 
 class TransformerEncoder(nn.Module):
@@ -57,6 +61,7 @@ class TransformerDecoderBlock(nn.Module):
 
 	def __init__(self, idx: int, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, attention_type: str = 'vanilla', output_attention: bool = False):
 		super().__init__()
+		self.output_attention = output_attention
 		attn_module = import_module(f'..attention.{attention_type}', __name__)
 		sa_class = getattr(attn_module, 'MultiHeadSelfAttention')
 		ca_class = getattr(attn_module, 'MultiHeadCrossAttention')
@@ -68,8 +73,12 @@ class TransformerDecoderBlock(nn.Module):
 		self.ln3 = nn.LayerNorm(emb_dim)
 	
 	def forward(self, src: Tensor, tgt: Tensor, src_mask: Tensor, tgt_mask: Tensor):
-		x = tgt + self.sa_module(self.ln1(tgt), tgt_mask)[0]
-		x = x + self.ca_module(self.ln2(tgt), self.ln2(src), tgt_mask, src_mask)[0]
+		if self.output_attention:
+			x = tgt + self.sa_module(self.ln1(tgt), tgt_mask)[0]
+			x = x + self.ca_module(self.ln2(tgt), self.ln2(src), tgt_mask, src_mask)[0]
+		else:
+			x = tgt + self.sa_module(self.ln1(tgt), tgt_mask)
+			x = x + self.ca_module(self.ln2(tgt), self.ln2(src), tgt_mask, src_mask)
 		x = x + self.fw_module(self.ln3(x))
 		return x
 

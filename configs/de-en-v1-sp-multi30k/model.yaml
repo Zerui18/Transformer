@@ -12,4 +12,8 @@ init_args:
   use_grad_ckpt: false
   pad_index: 3
   optimizer: AdamW
-  learning_rate: 0.0005  
+  learning_rate: 0.0005
+tokenizer:
+  class: SPTokenizer
+  init_args:
+    sp_model_path: data/multi30k/m_en_de.model

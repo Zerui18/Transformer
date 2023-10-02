@@ -64,7 +64,6 @@ def main():
 			text = input('Enter a sentence to translate: ').strip()
 			src = torch.tensor(tokenizer.encode(text), dtype=torch.long)
 		curses.wrapper(stream_translate, src)
-		exit()
 
 if __name__ == '__main__':
 	main()

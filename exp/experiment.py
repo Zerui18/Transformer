@@ -147,6 +147,7 @@ class Experiment:
 		try:
 			self._init_resources()
 			self.state = ExperimentState.RUNNING
+			self.model._val_dataloader = self.dls['valid']
 			self.trainer.fit(self.model, self.dls['train'], self.dls['valid'], ckpt_path=self.config.resume_from_checkpoint)
 			# only set completed if not stopped
 			if self.state == ExperimentState.RUNNING:
@@ -207,12 +208,20 @@ class Experiment:
 
 	def _init_model(self):
 		model_config = self.config.model_config
+		# init tokenizer
+		import toknizers
+		tokenizer_config = model_config['tokenizer']
+		tokenizer_class_name = tokenizer_config['class']
+		tokenizer_init_args = tokenizer_config['init_args']
+		tokenizer_cls = getattr(toknizers, tokenizer_class_name)
+		tokenizer = tokenizer_cls(**tokenizer_init_args)
+		# init model
 		class_name = model_config['class']
 		init_args = model_config['init_args']
 		import models
 		config_cls = getattr(models, class_name + 'Config')
 		cls = getattr(models, class_name)
-		self.model = cls(config_cls(**init_args))
+		self.model = cls(config_cls(**init_args), tokenizer=tokenizer)
 		# compile model
 		# TBD: compile on demand
 		#import torch
@@ -226,14 +235,32 @@ class Experiment:
 			self.directory / 'checkpoints/',
 			filename='model-{epoch}-{step}-{val_loss:.2f}',
 			mode='min',
-			monitor='train_loss',
-			every_n_train_steps=trainer_config.pop('model_checkpoint_interval'),
+			monitor='val_loss',
+			every_n_epochs=1,
 			save_top_k=2,
-			save_last=True,)
+			save_last=True)
+		greedy_bleu_ckpt = ModelCheckpoint(
+			self.directory / 'checkpoints/',
+			filename='model-{epoch}-{step}-{bleu_greedy:.2f}',
+			mode='max',
+			monitor='bleu_greedy',
+			every_n_epochs=1,
+			save_top_k=2,
+			save_last=True,
+			save_on_train_epoch_end=True)
+		bs_bleu_ckpt = ModelCheckpoint(
+			self.directory / 'checkpoints/',
+			filename='model-{epoch}-{step}-{bleu_bs16:.2f}',
+			mode='max',
+			monitor='bleu_bs16',
+			every_n_epochs=1,
+			save_top_k=2,
+			save_last=True,
+			save_on_train_epoch_end=True)
 		# init logger
 		logger = TensorBoardLogger(self.directory, name='', default_hp_metric=False, log_graph=False)
 		self.trainer = Trainer(accelerator='gpu', devices=1,
-								callbacks=[self._experiment_stopper, val_loss_ckpt],
+								callbacks=[self._experiment_stopper, val_loss_ckpt, greedy_bleu_ckpt, bs_bleu_ckpt],
 								logger=logger,
 								**trainer_config)
 

@@ -7,7 +7,7 @@ train:
     tgt_file: data/multi30k/train.en
     max_seq_len: 512
   dl_init_args:
-    batch_size: 64
+    batch_size: 128
     shuffle: true
 valid:
   ds_class: TranslationDataset
@@ -18,5 +18,5 @@ valid:
     tgt_file: data/multi30k/val.en
     max_seq_len: 512
   dl_init_args:
-    batch_size: 128
+    batch_size: 256
     shuffle: false
