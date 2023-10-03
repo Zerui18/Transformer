@@ -75,10 +75,10 @@ class TransformerDecoderBlock(nn.Module):
 	def forward(self, src: Tensor, tgt: Tensor, src_mask: Tensor, tgt_mask: Tensor):
 		if self.output_attention:
 			x = tgt + self.sa_module(self.ln1(tgt), tgt_mask)[0]
-			x = x + self.ca_module(self.ln2(tgt), self.ln2(src), tgt_mask, src_mask)[0]
+			x = x + self.ca_module(self.ln2(x), self.ln2(src), tgt_mask, src_mask)[0]
 		else:
 			x = tgt + self.sa_module(self.ln1(tgt), tgt_mask)
-			x = x + self.ca_module(self.ln2(tgt), self.ln2(src), tgt_mask, src_mask)
+			x = x + self.ca_module(self.ln2(x), self.ln2(src), tgt_mask, src_mask)
 		x = x + self.fw_module(self.ln3(x))
 		return x
 

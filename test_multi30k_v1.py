@@ -2,9 +2,9 @@ from pathlib import Path
 from itertools import product
 from exp.manager import ExperimentManager, ExperimentConfig
 
-exp_manager = ExperimentManager(Path('experiments/multi30k-v1'))
+exp_manager = ExperimentManager(Path('experiments/multi30k-v2'))
 
-N_BLOCKS = [1, 2, 4, 5, 6, 7, 8]
+N_BLOCKS = [1, 2, 4, 5, 6]
 VOCAB_SIZE = [1000, 3000, 5000, 7000, 10000, 15000]
 
 for n_blocks, vocab_size in product(N_BLOCKS, VOCAB_SIZE):
@@ -19,6 +19,6 @@ for n_blocks, vocab_size in product(N_BLOCKS, VOCAB_SIZE):
 	config.dls_config['train']['ds_init_args']['tgt_sp_model_file'] = f'data/multi30k/multi30k_{vocab_size}.model'
 	config.dls_config['valid']['ds_init_args']['src_sp_model_file'] = f'data/multi30k/multi30k_{vocab_size}.model'
 	config.dls_config['valid']['ds_init_args']['tgt_sp_model_file'] = f'data/multi30k/multi30k_{vocab_size}.model'
-	exp_manager.create_and_append_experiment(f'atis-v1-nb_{n_blocks}-v_{vocab_size}', config)
+	exp_manager.create_and_append_experiment(f'multi30k-v2-nb_{n_blocks}-v_{vocab_size}', config)
 
 input()
