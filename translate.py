@@ -54,7 +54,6 @@ def main():
 			print(tokenizer.IdToPiece(token).replace('▁', ' '), end='')
 		print()
 		print('End of translation.')
-		exit()
 
 if __name__ == '__main__':
 	main()

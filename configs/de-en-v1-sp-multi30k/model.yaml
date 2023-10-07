@@ -13,6 +13,7 @@ init_args:
   pad_index: 3
   optimizer: AdamW
   learning_rate: 0.0005
+  attention_type: xformer
 tokenizer:
   class: SPTokenizer
   init_args:

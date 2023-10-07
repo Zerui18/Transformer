@@ -33,10 +33,7 @@ class TransformerEncoderBlock(nn.Module):
 
 	
 	def forward(self, src: Tensor, src_mask: Tensor):
-		if self.output_attention:
-			x = src + self.sa_module(self.ln1(src), src_mask)[0]
-		else:
-			x = src + self.sa_module(self.ln1(src), src_mask)
+		x = src + self.sa_module(self.ln1(src), src_mask)[0]
 		x = x + self.fw_module(self.ln2(x))
 		return x
 
@@ -73,12 +70,8 @@ class TransformerDecoderBlock(nn.Module):
 		self.ln3 = nn.LayerNorm(emb_dim)
 	
 	def forward(self, src: Tensor, tgt: Tensor, src_mask: Tensor, tgt_mask: Tensor):
-		if self.output_attention:
-			x = tgt + self.sa_module(self.ln1(tgt), tgt_mask)[0]
-			x = x + self.ca_module(self.ln2(x), self.ln2(src), tgt_mask, src_mask)[0]
-		else:
-			x = tgt + self.sa_module(self.ln1(tgt), tgt_mask)
-			x = x + self.ca_module(self.ln2(x), self.ln2(src), tgt_mask, src_mask)
+		x = tgt + self.sa_module(self.ln1(tgt), tgt_mask)[0]
+		x = x + self.ca_module(self.ln2(x), self.ln2(src), tgt_mask, src_mask)[0]
 		x = x + self.fw_module(self.ln3(x))
 		return x
 

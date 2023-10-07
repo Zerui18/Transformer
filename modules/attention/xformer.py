@@ -2,8 +2,9 @@ import torch
 from torch import nn
 from torch import Tensor
 from xformers.ops import memory_efficient_attention, LowerTriangularMask
+from .base import MultiHeadSelfAttentionBase, MultiHeadCrossAttentionBase
 
-class MultiHeadSelfAttention(nn.Module):
+class MultiHeadSelfAttention(MultiHeadSelfAttentionBase):
 
 	''' Multi-head self attention.
 	Implements a somewhat optimized version of the self attention by combining the q, k, v projections.
@@ -16,19 +17,15 @@ class MultiHeadSelfAttention(nn.Module):
 		Tensor<Float>[B, T, C] output tensor.
 	'''
 
-	def __init__(self, n_heads: int, emb_dim: int, dropout: float, bias: bool = False, is_causal: bool = False):
-		super().__init__()
-		self.is_causal = is_causal
-		self.n_heads = n_heads
-		self.emb_dim = emb_dim
-		self.p_attn_dropout = dropout
-		self.resid_dropout = nn.Dropout(dropout)
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.resid_dropout = nn.Dropout(self.dropout)
 		# combine q, k, v projections for efficiency
-		self.qkv_projection = nn.Linear(emb_dim, 3 * emb_dim, bias=bias)
+		self.qkv_projection = nn.Linear(self.emb_dim, 3 * self.emb_dim, bias=self.bias)
 		# output projection
-		self.c_proj = nn.Linear(emb_dim, emb_dim, bias=bias)
+		self.c_proj = nn.Linear(self.emb_dim, self.emb_dim, bias=self.bias)
 
-	def forward(self, x: Tensor, tok_mask: Tensor):
+	def _forward(self, x: Tensor, tok_mask: Tensor):
 		B, T, C = x.shape
 		# proj q, k, v for all heads
 		# the heads are treated as a batch dimension
@@ -37,13 +34,13 @@ class MultiHeadSelfAttention(nn.Module):
 		k = k.view(B, T, self.n_heads, C // self.n_heads)
 		v = v.view(B, T, self.n_heads, C // self.n_heads)
 		# compute attention
-		y = memory_efficient_attention(q, k, v, LowerTriangularMask(), self.p_attn_dropout, None)
+		y = memory_efficient_attention(q, k, v, LowerTriangularMask(), self.dropout, None)
 		# combine heads
 		y = y.contiguous().view(B, T, C)
 		y = self.resid_dropout(self.c_proj(y))
-		return y
+		return y, None
 
-class MultiHeadCrossAttention(nn.Module):
+class MultiHeadCrossAttention(MultiHeadCrossAttentionBase):
 
 	''' Multi-head cross attention.
 	Implements a somewhat optimized version of the cross attention by combining the k, v projections.
@@ -58,19 +55,16 @@ class MultiHeadCrossAttention(nn.Module):
 		Tensor<Float>[B, T_q, C] output tensor.
 	'''
 
-	def __init__(self, n_heads: int, emb_dim: int, dropout: float, bias: bool = False):
-		super().__init__()
-		self.n_heads = n_heads
-		self.emb_dim = emb_dim
-		self.p_attn_dropout = dropout
-		self.resid_dropout = nn.Dropout(dropout)
-		self.q_projection = nn.Linear(emb_dim, emb_dim, bias=bias)
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.resid_dropout = nn.Dropout(self.dropout)
+		self.q_projection = nn.Linear(self.emb_dim, self.emb_dim, bias=self.bias)
 		# combine k, v projections for efficiency
-		self.kv_projection = nn.Linear(emb_dim, 2 * emb_dim, bias=bias)
+		self.kv_projection = nn.Linear(self.emb_dim, 2 * self.emb_dim, bias=self.bias)
 		# output projection
-		self.c_proj = nn.Linear(emb_dim, emb_dim, bias=bias)
+		self.c_proj = nn.Linear(self.emb_dim, self.emb_dim, bias=self.bias)
 
-	def forward(self, x_q: Tensor, x_kv: Tensor, q_tok_mask: Tensor, kv_tok_mask: Tensor):
+	def _forward(self, x_q: Tensor, x_kv: Tensor, q_tok_mask: Tensor, kv_tok_mask: Tensor):
 		# proj query for all heads
 		B, T_q, C = x_q.shape
 		q = self.q_projection(x_q)
@@ -81,8 +75,8 @@ class MultiHeadCrossAttention(nn.Module):
 		k = k.view(B, T_kv, self.n_heads, C // self.n_heads)
 		v = v.view(B, T_kv, self.n_heads, C // self.n_heads)
 		# compute attention
-		y = memory_efficient_attention(q, k, v, None, self.p_attn_dropout, None)
+		y = memory_efficient_attention(q, k, v, None, self.dropout, None)
 		# combine heads
 		y = y.contiguous().view(B, T_q, C)
 		y = self.resid_dropout(self.c_proj(y))
-		return y
+		return y, None
