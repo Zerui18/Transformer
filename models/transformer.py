@@ -72,6 +72,12 @@ class Transformer(pl.LightningModule):
 		self.lm_head = TransformerLMHead(config.emb_dim, config.tgt_vocab_size)
 		# weight tying
 		if config.weight_tying:
+			if config.weight_tying == '3-way':
+				# tie the encoder embedding to the decoder projection
+				# only valid if encoder and decoder have the same vocabulary
+				assert config.src_vocab_size == config.tgt_vocab_size, 'Encoder and decoder must have the same vocabulary size for 3-way weight tying.'
+				self.src_embeddings.token_embedding_table.weight = self.lm_head.logits_head.weight
+			# tie the decoder embedding to the decoder projection
 			self.tgt_embeddings.token_embedding_table.weight = self.lm_head.logits_head.weight
 		# attention hooking
 		if config.output_attention:

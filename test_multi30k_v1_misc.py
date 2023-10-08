@@ -2,13 +2,16 @@ from pathlib import Path
 from itertools import product
 from exp.manager import ExperimentManager, ExperimentConfig
 
-exp_manager = ExperimentManager(Path('experiments/multi30k-v2'))
+exp_manager = ExperimentManager(Path('experiments/multi30k-v2-sp'))
 
-ATTN_TYPES = ['multi_query', 'roformer_attn']
-N_BLOCKS = [4, 5, 6]
-VOCAB_SIZE = [1000, 5000, 10000, 15000]
+N_BLOCKS = [3, 4, 5]
+N_HEADS = [2, 4, 8, 16]
+EMB_DIM = [128, 256, 512]
+weight_tying = ['3-way', '2-way', None]
+vocab_size = 1000
+attn_type = 'roformer_attn'
 
-for n_blocks, vocab_size, attn_type in product(N_BLOCKS, VOCAB_SIZE, ATTN_TYPES):
+for n_blocks, n_heads, emb_dim, wt in product(N_BLOCKS, N_HEADS, EMB_DIM, weight_tying):
 	config = ExperimentConfig.from_config_files(f'configs/de-en-v1-sp-multi30k/model.yaml',
 												f'configs/de-en-v1-sp-multi30k/dls.yaml',
 												f'configs/de-en-v1-sp-multi30k/trainer.yaml')
@@ -16,11 +19,14 @@ for n_blocks, vocab_size, attn_type in product(N_BLOCKS, VOCAB_SIZE, ATTN_TYPES)
 	config.model_config['init_args']['src_vocab_size'] = vocab_size
 	config.model_config['init_args']['tgt_vocab_size'] = vocab_size
 	config.model_config['init_args']['attention_type'] = attn_type
+	config.model_config['init_args']['n_heads'] = n_heads
+	config.model_config['init_args']['emb_dim'] = emb_dim
+	config.model_config['init_args']['weight_tying'] = wt
 	config.model_config['tokenizer']['init_args']['sp_model_path'] = f'data/multi30k/multi30k_{vocab_size}.model'
 	config.dls_config['train']['ds_init_args']['src_sp_model_file'] = f'data/multi30k/multi30k_{vocab_size}.model'
 	config.dls_config['train']['ds_init_args']['tgt_sp_model_file'] = f'data/multi30k/multi30k_{vocab_size}.model'
 	config.dls_config['valid']['ds_init_args']['src_sp_model_file'] = f'data/multi30k/multi30k_{vocab_size}.model'
 	config.dls_config['valid']['ds_init_args']['tgt_sp_model_file'] = f'data/multi30k/multi30k_{vocab_size}.model'
-	exp_manager.create_and_append_experiment(f'multi30k-v2-nb_{n_blocks}-v_{vocab_size}-at_{attn_type}', config)
+	exp_manager.create_and_append_experiment(f'nb_{n_blocks}-nh_{n_heads}-ed_{emb_dim}-wt_{wt}', config)
 
 input()
