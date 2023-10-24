@@ -8,6 +8,8 @@ def run_experiment_child_process(name: str, directory: str, state: Value, err_bu
     # configure torch
     import torch
     torch.set_float32_matmul_precision('high')
+    import pytorch_lightning
+    pytorch_lightning.seed_everything(42)
     # run experiment
     experiment = Experiment(name, directory, state, err_buffer, experiment_config)
     experiment.run()

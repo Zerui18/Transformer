@@ -65,8 +65,8 @@ class ATISDataset(BaseDataset):
 		transcript = self.tokenizer.encode(transcript, enable_sampling=True, alpha=0.1, nbest_size=-1)[:self.max_seq_len]
 		# create src & tgt tensors
 		x_src = torch.tensor(mel.T, dtype=torch.float)
-		x_tgt = torch.tensor([ATISDataset.BOS_IDX] + transcript[:-1], dtype=torch.long)
-		y_tgt = torch.tensor(transcript[1:] + [ATISDataset.EOS_IDX], dtype=torch.long)
+		x_tgt = torch.tensor([ATISDataset.BOS_IDX] + transcript, dtype=torch.long)
+		y_tgt = torch.tensor(transcript + [ATISDataset.EOS_IDX], dtype=torch.long)
 		return x_src, x_tgt, y_tgt
 
 	@staticmethod

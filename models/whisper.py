@@ -10,6 +10,13 @@ from modules.whisper import AudioEncoder
 from modules.embedding import PosNTokEmbedding, PositionalEmbedding
 from dataclasses import dataclass
 from pytorch_lightning.utilities import grad_norm
+from toknizers import Tokenizer
+from metrics import get_bleu_score
+
+UNK_IDX = 0
+BOS_IDX = 1
+EOS_IDX = 2
+PAD_IDX = 3
 
 ### CONFIG ###
 
@@ -49,9 +56,10 @@ class WhisperInputBatch:
 
 class Whisper(pl.LightningModule):
 
-	def __init__(self, config: WhisperConfig):
+	def __init__(self, config: WhisperConfig, tokenizer: Tokenizer):
 		super().__init__()
 		self.save_hyperparameters()
+		self.tokenizer = tokenizer
 		self.config = config
 		self.learning_rate = config.learning_rate
 		self.attention_type = config.attention_type
@@ -132,6 +140,45 @@ class Whisper(pl.LightningModule):
 			f'{prefix}_accuracy': accuracy
 		}
 	
+	@torch.inference_mode()
+	def generate_bleu_report(self, samples: list, references: list):
+		''' Generate a BLEU report for a list of samples and their corresponding references.'''
+		# put self into eval mode
+		greedy_generations = []
+		greedy_bleu_scores = []
+		bs_generations = []
+		bs_bleu_scores = []
+		self.eval()
+		for sample, reference in zip(samples, references):
+			sample = torch.tensor(sample.T, dtype=torch.float, device=self.device)
+			reference = self.tokenizer.tokenize(reference)
+			# greedy decoding
+			greedy_translated = list(self.translate_with_sampling(sample, BOS_IDX, EOS_IDX, sampling='argmax', max_new_tokens=128))
+			greedy_generations.append(self.tokenizer.detokenize(greedy_translated))
+			greedy_bleu = get_bleu_score(greedy_translated, reference, self.tokenizer)
+			greedy_bleu_scores.append(greedy_bleu)
+			# beam search decoding
+			bs_translated = [int(beams[0]) for beams in self.translate_with_beams(sample, BOS_IDX, EOS_IDX, beam_width=16, max_new_tokens=128)]
+			bs_generations.append(self.tokenizer.detokenize(bs_translated))
+			bs_bleu = get_bleu_score(bs_translated, reference, self.tokenizer)
+			bs_bleu_scores.append(bs_bleu)
+		# log results
+		greedy_average_bleu = sum(greedy_bleu_scores) / len(greedy_bleu_scores)
+		bs_average_bleu = sum(bs_bleu_scores) / len(bs_bleu_scores)
+		self.log_dict({
+			'bleu_greedy': greedy_average_bleu,
+			'bleu_bs16': bs_average_bleu,
+			'bleu_ave': (greedy_average_bleu + bs_average_bleu) / 2
+		})
+		# print generated samples
+		for sample, reference, greedy, bs in zip(samples, references, greedy_generations, bs_generations):
+			print('-' * 50)
+			print('Step: ', self.global_step)
+			print(f'Refere: {reference}')
+			print(f'Greedy: {greedy}')
+			print(f'Beam16: {bs}')
+			print()
+	
 	### STEPS ###
 
 	def training_step(self, batch: WhisperInputBatch, batch_idx: int):
@@ -179,6 +226,15 @@ class Whisper(pl.LightningModule):
 	def on_validation_epoch_end(self):
 		loss = sum(self.val_losses) / len(self.val_losses)
 		print(f'Epoch {self.trainer.current_epoch} val loss:', loss)
+		if self.global_step > 0:
+			# generate a BLEU report
+			samples_length = 32
+			samples = self._val_dataloader.dataset.df.head(samples_length).mel.tolist()
+			references = self._val_dataloader.dataset.df.head(samples_length).transcript.tolist()
+			print('Generating BLEU report...')
+			print('-' * 50)
+			print('Step: ', self.global_step)
+			self.generate_bleu_report(samples, references)
 	
 	def on_before_optimizer_step(self, optimizer):
 		norms = grad_norm(self, 2)
