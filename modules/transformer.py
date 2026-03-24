@@ -48,8 +48,8 @@ class TransformerEncoder(nn.Module):
 		x = src
 		for block in self.blocks:
 			if self.use_grad_ckpt:
-				forward = lambda *inputs: block(*inputs)
-				x = checkpoint(forward, x, src_mask, preserve_rng_state=False)
+				forward = lambda *inputs, _block=block: _block(*inputs)
+				x = checkpoint(forward, x, src_mask, use_reentrant=False)
 			else:
 				x = block(x, src_mask)
 		return x
@@ -86,8 +86,8 @@ class TransformerDecoder(nn.Module):
 		x = tgt
 		for block in self.blocks:
 			if self.use_grad_ckpt:
-				forward = lambda *inputs: block(*inputs)
-				x = checkpoint(forward, src, x, src_mask, tgt_mask, preserve_rng_state=False)
+				forward = lambda *inputs, _block=block: _block(*inputs)
+				x = checkpoint(forward, src, x, src_mask, tgt_mask, use_reentrant=False)
 			else:
 				x = block(src, x, src_mask, tgt_mask)
 		return x
