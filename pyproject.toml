@@ -1,0 +1,32 @@
+[project]
+name = "zlab"
+version = "0.1.0"
+description = "Research playground for transformer architectures, attention mechanisms, and beyond"
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.0",
+    "pytorch-lightning>=2.0",
+    "sentencepiece>=0.1.96",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "nltk>=3.8",
+    "apscheduler>=3.10",
+]
+
+[project.optional-dependencies]
+hf = ["transformers>=4.30"]
+audio = ["librosa>=0.10", "tqdm>=4.65"]
+spacy = ["spacy>=3.5", "torchtext>=0.15"]
+server = ["flask>=3.0"]
+
+[tool.uv]
+index-url = "https://pypi.org/simple"
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
