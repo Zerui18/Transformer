@@ -8,10 +8,10 @@ from components.modules.attention.base import MultiHeadSelfAttentionBase, MultiH
 class XformerSelfAttention(MultiHeadSelfAttentionBase):
 	'''Multi-head self-attention using xformers memory_efficient_attention backend.
 
-	Properties:
-		1. resid_dropout: nn.Dropout  dropout applied after the output projection.
-		2. qkv_projection: nn.Linear  combined Q, K, V linear projection (D -> 3D).
-		3. c_proj: nn.Linear  output linear projection (D -> D).
+	Attributes:
+		resid_dropout: ``nn.Dropout``: dropout applied after the output projection.
+		qkv_projection: ``nn.Linear``: combined Q, K, V linear projection (D -> 3D).
+		c_proj: ``nn.Linear``: output linear projection (D -> D).
 
 	Uses xformers.ops.memory_efficient_attention which expects tensors in (B, T, H, Dh)
 	layout. Causal masking is applied via LowerTriangularMask. Attention weights are not
@@ -22,10 +22,14 @@ class XformerSelfAttention(MultiHeadSelfAttentionBase):
 		'''Initialise XformerSelfAttention layers.
 
 		Args:
-			1. *args: passed to MultiHeadSelfAttentionBase.
-			2. **kwargs: passed to MultiHeadSelfAttentionBase.
+			*args: passed to MultiHeadSelfAttentionBase.
+			**kwargs: passed to MultiHeadSelfAttentionBase.
 		'''
 		super().__init__(*args, **kwargs)
+		if self.output_attention:
+			raise ValueError(
+				f'{self.__class__.__name__} does not support output_attention=True '
+				'because xformers does not expose attention weights.')
 		self.resid_dropout = nn.Dropout(self.dropout)
 		# combine q, k, v projections for efficiency
 		self.qkv_projection = nn.Linear(self.emb_dim, 3 * self.emb_dim, bias=self.bias)
@@ -36,10 +40,10 @@ class XformerSelfAttention(MultiHeadSelfAttentionBase):
 		'''Compute self-attention via xformers memory_efficient_attention.
 
 		Args:
-			1. x: Tensor  [float32, (B, T, D)] input embeddings.
-			2. tok_mask: Tensor  [bool, (B, T)] per-token mask (not used directly by xformers; causal mask applied via LowerTriangularMask).
+			x: ``Tensor[(B, T, D), float32]``: input embeddings.
+			tok_mask: ``Tensor[(B, T), bool]``: per-token mask (not used directly by xformers; causal mask applied via LowerTriangularMask).
 		Returns:
-			result: tuple[Tensor, None]  (output (B, T, D), None) -- weights unavailable from xformers.
+			``tuple[Tensor, None]``: (output (B, T, D), None) -- weights unavailable from xformers.
 		'''
 		B, T, D = x.shape
 		H = self.n_heads
@@ -49,8 +53,9 @@ class XformerSelfAttention(MultiHeadSelfAttentionBase):
 		q = rearrange(q, 'B T (H Dh) -> B T H Dh', H=H)  # (B, T, H, D//H)
 		k = rearrange(k, 'B T (H Dh) -> B T H Dh', H=H)  # (B, T, H, D//H)
 		v = rearrange(v, 'B T (H Dh) -> B T H Dh', H=H)  # (B, T, H, D//H)
-		# compute attention via xformers
-		y = memory_efficient_attention(q, k, v, LowerTriangularMask(), self.dropout, None)  # (B, T, H, D//H)
+		# compute attention via xformers (causal mask only when is_causal=True)
+		attn_bias = LowerTriangularMask() if self.is_causal else None
+		y = memory_efficient_attention(q, k, v, attn_bias, self.dropout, None)  # (B, T, H, D//H)
 		# combine heads
 		y = rearrange(y, 'B T H Dh -> B T (H Dh)')  # (B, T, D)
 		y = self.resid_dropout(self.c_proj(y))
@@ -60,11 +65,11 @@ class XformerSelfAttention(MultiHeadSelfAttentionBase):
 class XformerCrossAttention(MultiHeadCrossAttentionBase):
 	'''Multi-head cross-attention using xformers memory_efficient_attention backend.
 
-	Properties:
-		1. resid_dropout: nn.Dropout  dropout applied after the output projection.
-		2. q_projection: nn.Linear  query linear projection (D -> D).
-		3. kv_projection: nn.Linear  combined K, V linear projection (D -> 2D).
-		4. c_proj: nn.Linear  output linear projection (D -> D).
+	Attributes:
+		resid_dropout: ``nn.Dropout``: dropout applied after the output projection.
+		q_projection: ``nn.Linear``: query linear projection (D -> D).
+		kv_projection: ``nn.Linear``: combined K, V linear projection (D -> 2D).
+		c_proj: ``nn.Linear``: output linear projection (D -> D).
 
 	Uses xformers.ops.memory_efficient_attention which expects tensors in (B, T, H, Dh)
 	layout. No causal mask is applied for cross-attention. Attention weights are not
@@ -75,8 +80,8 @@ class XformerCrossAttention(MultiHeadCrossAttentionBase):
 		'''Initialise XformerCrossAttention layers.
 
 		Args:
-			1. *args: passed to MultiHeadCrossAttentionBase.
-			2. **kwargs: passed to MultiHeadCrossAttentionBase.
+			*args: passed to MultiHeadCrossAttentionBase.
+			**kwargs: passed to MultiHeadCrossAttentionBase.
 		'''
 		super().__init__(*args, **kwargs)
 		self.resid_dropout = nn.Dropout(self.dropout)
@@ -90,12 +95,12 @@ class XformerCrossAttention(MultiHeadCrossAttentionBase):
 		'''Compute cross-attention via xformers memory_efficient_attention.
 
 		Args:
-			1. x_q: Tensor  [float32, (B, Tq, D)] query embeddings.
-			2. x_kv: Tensor  [float32, (B, Tk, D)] key/value embeddings.
-			3. q_tok_mask: Tensor  [bool, (B, Tq)] query token mask (not used directly by xformers).
-			4. kv_tok_mask: Tensor  [bool, (B, Tk)] key/value token mask (not used directly by xformers).
+			x_q: ``Tensor[(B, Tq, D), float32]``: query embeddings.
+			x_kv: ``Tensor[(B, Tk, D), float32]``: key/value embeddings.
+			q_tok_mask: ``Tensor[(B, Tq), bool]``: query token mask (not used directly by xformers).
+			kv_tok_mask: ``Tensor[(B, Tk), bool]``: key/value token mask (not used directly by xformers).
 		Returns:
-			result: tuple[Tensor, None]  (output (B, Tq, D), None) -- weights unavailable from xformers.
+			``tuple[Tensor, None]``: (output (B, Tq, D), None) -- weights unavailable from xformers.
 		'''
 		B, Tq, D = x_q.shape
 		_, Tk, _ = x_kv.shape

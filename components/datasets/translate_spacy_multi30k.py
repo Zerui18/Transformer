@@ -18,9 +18,9 @@ def sequential_transforms(*transforms: Callable) -> Callable:
 	''' Chain multiple transforms into a single callable that applies them sequentially.
 
 	Args:
-		1. *transforms: Callable  variable number of callables to be applied in order.
+		*transforms: ``Callable``: variable number of callables to be applied in order.
 	Returns:
-		func: Callable  composed transform function.
+		``Callable``: composed transform function.
 	'''
 	def func(txt_input: str) -> Tensor:
 		for transform in transforms:
@@ -33,9 +33,9 @@ def tensor_transform(token_ids: list[int]) -> Tensor:
 	''' Wrap token ids with BOS/EOS and convert to a tensor.
 
 	Args:
-		1. token_ids: list[int]  list of integer token indices.
+		token_ids: ``list[int]``: list of integer token indices.
 	Returns:
-		result: Tensor [int64, (T,)]  tensor with BOS prepended and EOS appended.
+		``Tensor[(T,), int64]``: tensor with BOS prepended and EOS appended.
 	'''
 	return torch.cat((
 		torch.tensor([BOS_IDX]),
@@ -48,10 +48,10 @@ def yield_tokens(data_iter: Iterable, language: str) -> Iterable[list[str]]:
 	''' Yield lists of tokens from a data iterator for a given language.
 
 	Args:
-		1. data_iter: Iterable  iterable of (source, target) text pairs.
-		2. language: str  language key ('de' or 'en').
+		data_iter: ``Iterable``: iterable of (source, target) text pairs.
+		language: ``str``: language key ('de' or 'en').
 	Yields:
-		tokens: list[str]  tokenized text for the specified language.
+		``list[str]``: tokenized text for the specified language.
 	'''
 	language_index = {'de': 0, 'en': 1}
 	for data_sample in data_iter:
@@ -61,11 +61,11 @@ def yield_tokens(data_iter: Iterable, language: str) -> Iterable[list[str]]:
 class TranslationDatasetSpacyMulti30K(BaseDataset):
 	''' Translation dataset using spaCy tokenizers on the Multi30k dataset from torchtext.
 
-	Properties:
-		1. src_lang: str  source language code.
-		2. tgt_lang: str  target language code.
-		3. split: str  dataset split ('train' or 'valid').
-		4. dataset: list[tuple[str, str]]  list of (source, target) sentence pairs.
+	Attributes:
+		src_lang: ``str``: source language code.
+		tgt_lang: ``str``: target language code.
+		split: ``str``: dataset split ('train' or 'valid').
+		dataset: ``list[tuple[str, str]]``: list of (source, target) sentence pairs.
 
 	Currently only de -> en is supported as the vocabulary building and text
 	transforms are hardcoded for this language pair. Class-level resources
@@ -87,9 +87,9 @@ class TranslationDatasetSpacyMulti30K(BaseDataset):
 		''' Initialise the Multi30k translation dataset for the given language pair and split.
 
 		Args:
-			1. src_language: str  source language code (e.g. 'de').
-			2. tgt_language: str  target language code (e.g. 'en').
-			3. split: str  dataset split, one of 'train' or 'valid'.
+			src_language: ``str``: source language code (e.g. 'de').
+			tgt_language: ``str``: target language code (e.g. 'en').
+			split: ``str``: dataset split, one of 'train' or 'valid'.
 		'''
 		TranslationDatasetSpacyMulti30K._init_resources()
 		super().__init__()
@@ -162,7 +162,7 @@ class TranslationDatasetSpacyMulti30K(BaseDataset):
 		''' Return the number of samples in the current split.
 
 		Returns:
-			length: int  number of sentence pairs (29000 for train, 1014 for valid).
+			``int``: number of sentence pairs (29000 for train, 1014 for valid).
 		'''
 		if self.split == 'train':
 			return 29000
@@ -174,10 +174,10 @@ class TranslationDatasetSpacyMulti30K(BaseDataset):
 		''' Return transformed source and target tensors for a given index.
 
 		Args:
-			1. idx: int  sample index.
+			idx: ``int``: sample index.
 		Returns:
-			src: Tensor [int64, (Ts,)]  source tokens with BOS and EOS.
-			dst: Tensor [int64, (Tt,)]  target tokens with BOS and EOS.
+			``Tensor[(Ts,), int64]``: source tokens with BOS and EOS.
+			``Tensor[(Tt,), int64]``: target tokens with BOS and EOS.
 		'''
 		src, dst = self.dataset[idx]
 		src = TranslationDatasetSpacyMulti30K.text_transform['de'](src.rstrip("\n"))
@@ -189,15 +189,15 @@ class TranslationDatasetSpacyMulti30K(BaseDataset):
 		''' Return a collate function that pads sequences and splits target into input/label.
 
 		Returns:
-			collate_fn: Callable  collate function producing dict[str, Tensor].
+			``Callable``: collate function producing dict[str, Tensor].
 		'''
 		def collate_fn(batch: list[tuple[Tensor, Tensor]]) -> dict[str, Tensor]:
 			''' Collate a list of (src, tgt) pairs into a padded batch dict.
 
 			Args:
-				1. batch: list[tuple[Tensor, Tensor]]  list of (source, target) tensor pairs.
+				batch: ``list[tuple[Tensor, Tensor]]``: list of (source, target) tensor pairs.
 			Returns:
-				result: dict[str, Tensor]  with keys:
+				``dict[str, Tensor]``: with keys:
 					'x_src' [int64, (B, Ts)], 'x_tgt' [int64, (B, Tt-1)],
 					'x_src_mask' [bool, (B, Ts)], 'x_tgt_mask' [bool, (B, Tt-1)],
 					'y_tgt' [int64, (B, Tt-1)].

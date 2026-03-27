@@ -9,17 +9,17 @@ from torch.utils.checkpoint import checkpoint
 class TransformerFeedForward(nn.Module):
 	''' Position-wise feed-forward network with GELU activation and optional dropout.
 
-	Properties:
-		1. net: nn.Sequential  linear -> GELU -> linear [-> dropout].
+	Attributes:
+		net: ``nn.Sequential``: linear -> GELU -> linear [-> dropout].
 	'''
 
 	def __init__(self, emb_dim: int, dropout: float, expansion_factor: int = 4):
 		''' Initialize the feed-forward network.
 
 		Args:
-			1. emb_dim: int  input and output embedding dimension D.
-			2. dropout: float  dropout rate applied after the second linear layer. 0 disables dropout.
-			3. expansion_factor: int  hidden layer size multiplier (hidden = emb_dim * expansion_factor).
+			emb_dim: ``int``: input and output embedding dimension D.
+			dropout: ``float``: dropout rate applied after the second linear layer. 0 disables dropout.
+			expansion_factor: ``int``: hidden layer size multiplier (hidden = emb_dim * expansion_factor).
 		'''
 		super().__init__()
 		self.net = nn.Sequential(
@@ -34,9 +34,9 @@ class TransformerFeedForward(nn.Module):
 		''' Apply position-wise feed-forward transformation.
 
 		Args:
-			1. x: Tensor  [float32, (B, T, D)] input features.
+			x: ``Tensor[(B, T, D), float32]``: input features.
 		Returns:
-			out: Tensor  [float32, (B, T, D)] transformed features.
+			``Tensor[(B, T, D), float32]``: transformed features.
 		'''
 		return self.net(x)
 
@@ -44,11 +44,11 @@ class TransformerFeedForward(nn.Module):
 class TransformerEncoderBlock(nn.Module):
 	''' Single transformer encoder block with pre-norm self-attention and feed-forward.
 
-	Properties:
-		1. sa_module: nn.Module  multi-head self-attention module.
-		2. fw_module: TransformerFeedForward  feed-forward network.
-		3. ln1: nn.LayerNorm  pre-norm before self-attention.
-		4. ln2: nn.LayerNorm  pre-norm before feed-forward.
+	Attributes:
+		sa_module: ``nn.Module``: multi-head self-attention module.
+		fw_module: ``TransformerFeedForward``: feed-forward network.
+		ln1: ``nn.LayerNorm``: pre-norm before self-attention.
+		ln2: ``nn.LayerNorm``: pre-norm before feed-forward.
 	'''
 
 	def __init__(self, idx: int, n_heads: int, emb_dim: int, dropout: float,
@@ -57,13 +57,13 @@ class TransformerEncoderBlock(nn.Module):
 		''' Initialize a transformer encoder block.
 
 		Args:
-			1. idx: int  block index (used for attention tagging).
-			2. n_heads: int  number of attention heads H.
-			3. emb_dim: int  embedding dimension D.
-			4. dropout: float  dropout rate.
-			5. bias: bool  whether to use bias in attention projections.
-			6. attention_type: str  attention module name under components.modules.attention.
-			7. output_attention: bool  whether to output attention weights.
+			idx: ``int``: block index (used for attention tagging).
+			n_heads: ``int``: number of attention heads H.
+			emb_dim: ``int``: embedding dimension D.
+			dropout: ``float``: dropout rate.
+			bias: ``bool``: whether to use bias in attention projections.
+			attention_type: ``str``: attention module name under components.modules.attention.
+			output_attention: ``bool``: whether to output attention weights.
 		'''
 		super().__init__()
 		self.output_attention = output_attention
@@ -82,10 +82,10 @@ class TransformerEncoderBlock(nn.Module):
 		''' Apply encoder block: pre-norm self-attention + residual, then pre-norm FFN + residual.
 
 		Args:
-			1. src: Tensor  [float32, (B, T, D)] source embeddings.
-			2. src_mask: Tensor  [bool, (B, T)] source token mask (True = keep).
+			src: ``Tensor[(B, T, D), float32]``: source embeddings.
+			src_mask: ``Tensor[(B, T), bool]``: source token mask (True = keep).
 		Returns:
-			out: Tensor  [float32, (B, T, D)] encoded features.
+			``Tensor[(B, T, D), float32]``: encoded features.
 		'''
 		# self-attention with pre-norm and residual
 		x = src + self.sa_module(self.ln1(src), src_mask)[0]
@@ -97,9 +97,9 @@ class TransformerEncoderBlock(nn.Module):
 class TransformerEncoder(nn.Module):
 	''' Stack of transformer encoder blocks with optional gradient checkpointing.
 
-	Properties:
-		1. blocks: nn.ModuleList  list of TransformerEncoderBlock.
-		2. use_grad_ckpt: bool  whether to use gradient checkpointing.
+	Attributes:
+		blocks: ``nn.ModuleList``: list of TransformerEncoderBlock.
+		use_grad_ckpt: ``bool``: whether to use gradient checkpointing.
 	'''
 
 	def __init__(self, n_blocks: int, n_heads: int, emb_dim: int, dropout: float,
@@ -108,14 +108,14 @@ class TransformerEncoder(nn.Module):
 		''' Initialize the transformer encoder.
 
 		Args:
-			1. n_blocks: int  number of encoder blocks.
-			2. n_heads: int  number of attention heads H.
-			3. emb_dim: int  embedding dimension D.
-			4. dropout: float  dropout rate.
-			5. bias: bool  whether to use bias in attention projections.
-			6. use_grad_ckpt: bool  enable gradient checkpointing to save memory.
-			7. attention_type: str  attention module name.
-			8. output_attention: bool  whether to output attention weights.
+			n_blocks: ``int``: number of encoder blocks.
+			n_heads: ``int``: number of attention heads H.
+			emb_dim: ``int``: embedding dimension D.
+			dropout: ``float``: dropout rate.
+			bias: ``bool``: whether to use bias in attention projections.
+			use_grad_ckpt: ``bool``: enable gradient checkpointing to save memory.
+			attention_type: ``str``: attention module name.
+			output_attention: ``bool``: whether to output attention weights.
 		'''
 		super().__init__()
 		self.blocks = nn.ModuleList([
@@ -129,10 +129,10 @@ class TransformerEncoder(nn.Module):
 		''' Pass source through all encoder blocks.
 
 		Args:
-			1. src: Tensor  [float32, (B, T, D)] source embeddings.
-			2. src_mask: Tensor  [bool, (B, T)] source token mask.
+			src: ``Tensor[(B, T, D), float32]``: source embeddings.
+			src_mask: ``Tensor[(B, T), bool]``: source token mask.
 		Returns:
-			out: Tensor  [float32, (B, T, D)] encoded features.
+			``Tensor[(B, T, D), float32]``: encoded features.
 		'''
 		x = src
 		for block in self.blocks:
@@ -147,14 +147,14 @@ class TransformerEncoder(nn.Module):
 class TransformerDecoderBlock(nn.Module):
 	''' Single transformer decoder block with pre-norm self-attention, cross-attention, and feed-forward.
 
-	Properties:
-		1. sa_module: nn.Module  masked multi-head self-attention module.
-		2. ca_module: nn.Module  multi-head cross-attention module.
-		3. fw_module: TransformerFeedForward  feed-forward network.
-		4. ln1: nn.LayerNorm  pre-norm before self-attention.
-		5. ln2: nn.LayerNorm  pre-norm before cross-attention (query path).
-		6. ln3: nn.LayerNorm  pre-norm before feed-forward.
-		7. ln_enc: nn.LayerNorm  pre-norm for encoder output (key-value path in cross-attention).
+	Attributes:
+		sa_module: ``nn.Module``: masked multi-head self-attention module.
+		ca_module: ``nn.Module``: multi-head cross-attention module.
+		fw_module: ``TransformerFeedForward``: feed-forward network.
+		ln1: ``nn.LayerNorm``: pre-norm before self-attention.
+		ln2: ``nn.LayerNorm``: pre-norm before cross-attention (query path).
+		ln3: ``nn.LayerNorm``: pre-norm before feed-forward.
+		ln_enc: ``nn.LayerNorm``: pre-norm for encoder output (key-value path in cross-attention).
 	'''
 
 	def __init__(self, idx: int, n_heads: int, emb_dim: int, dropout: float,
@@ -163,13 +163,13 @@ class TransformerDecoderBlock(nn.Module):
 		''' Initialize a transformer decoder block.
 
 		Args:
-			1. idx: int  block index.
-			2. n_heads: int  number of attention heads H.
-			3. emb_dim: int  embedding dimension D.
-			4. dropout: float  dropout rate.
-			5. bias: bool  whether to use bias in attention projections.
-			6. attention_type: str  attention module name.
-			7. output_attention: bool  whether to output attention weights.
+			idx: ``int``: block index.
+			n_heads: ``int``: number of attention heads H.
+			emb_dim: ``int``: embedding dimension D.
+			dropout: ``float``: dropout rate.
+			bias: ``bool``: whether to use bias in attention projections.
+			attention_type: ``str``: attention module name.
+			output_attention: ``bool``: whether to output attention weights.
 		'''
 		super().__init__()
 		self.output_attention = output_attention
@@ -194,12 +194,12 @@ class TransformerDecoderBlock(nn.Module):
 		''' Apply decoder block: self-attn → cross-attn → FFN, each with pre-norm + residual.
 
 		Args:
-			1. src: Tensor  [float32, (B, Ts, D)] encoder output.
-			2. tgt: Tensor  [float32, (B, Tt, D)] target embeddings.
-			3. src_mask: Tensor  [bool, (B, Ts)] source token mask.
-			4. tgt_mask: Tensor  [bool, (B, Tt)] target token mask.
+			src: ``Tensor[(B, Ts, D), float32]``: encoder output.
+			tgt: ``Tensor[(B, Tt, D), float32]``: target embeddings.
+			src_mask: ``Tensor[(B, Ts), bool]``: source token mask.
+			tgt_mask: ``Tensor[(B, Tt), bool]``: target token mask.
 		Returns:
-			out: Tensor  [float32, (B, Tt, D)] decoded features.
+			``Tensor[(B, Tt, D), float32]``: decoded features.
 		'''
 		# causal self-attention with pre-norm and residual
 		x = tgt + self.sa_module(self.ln1(tgt), tgt_mask)[0]
@@ -213,9 +213,9 @@ class TransformerDecoderBlock(nn.Module):
 class TransformerDecoder(nn.Module):
 	''' Stack of transformer decoder blocks with optional gradient checkpointing.
 
-	Properties:
-		1. blocks: nn.ModuleList  list of TransformerDecoderBlock.
-		2. use_grad_ckpt: bool  whether to use gradient checkpointing.
+	Attributes:
+		blocks: ``nn.ModuleList``: list of TransformerDecoderBlock.
+		use_grad_ckpt: ``bool``: whether to use gradient checkpointing.
 	'''
 
 	def __init__(self, n_blocks: int, n_heads: int, emb_dim: int, dropout: float,
@@ -224,14 +224,14 @@ class TransformerDecoder(nn.Module):
 		''' Initialize the transformer decoder.
 
 		Args:
-			1. n_blocks: int  number of decoder blocks.
-			2. n_heads: int  number of attention heads H.
-			3. emb_dim: int  embedding dimension D.
-			4. dropout: float  dropout rate.
-			5. bias: bool  whether to use bias in attention projections.
-			6. use_grad_ckpt: bool  enable gradient checkpointing.
-			7. attention_type: str  attention module name.
-			8. output_attention: bool  whether to output attention weights.
+			n_blocks: ``int``: number of decoder blocks.
+			n_heads: ``int``: number of attention heads H.
+			emb_dim: ``int``: embedding dimension D.
+			dropout: ``float``: dropout rate.
+			bias: ``bool``: whether to use bias in attention projections.
+			use_grad_ckpt: ``bool``: enable gradient checkpointing.
+			attention_type: ``str``: attention module name.
+			output_attention: ``bool``: whether to output attention weights.
 		'''
 		super().__init__()
 		self.blocks = nn.ModuleList([
@@ -245,12 +245,12 @@ class TransformerDecoder(nn.Module):
 		''' Pass target through all decoder blocks.
 
 		Args:
-			1. src: Tensor  [float32, (B, Ts, D)] encoder output.
-			2. tgt: Tensor  [float32, (B, Tt, D)] target embeddings.
-			3. src_mask: Tensor  [bool, (B, Ts)] source token mask.
-			4. tgt_mask: Tensor  [bool, (B, Tt)] target token mask.
+			src: ``Tensor[(B, Ts, D), float32]``: encoder output.
+			tgt: ``Tensor[(B, Tt, D), float32]``: target embeddings.
+			src_mask: ``Tensor[(B, Ts), bool]``: source token mask.
+			tgt_mask: ``Tensor[(B, Tt), bool]``: target token mask.
 		Returns:
-			out: Tensor  [float32, (B, Tt, D)] decoded features.
+			``Tensor[(B, Tt, D), float32]``: decoded features.
 		'''
 		x = tgt
 		for block in self.blocks:
@@ -265,17 +265,17 @@ class TransformerDecoder(nn.Module):
 class TransformerLMHead(nn.Module):
 	''' Language model head: LayerNorm followed by a linear projection to vocabulary logits.
 
-	Properties:
-		1. ln: nn.LayerNorm  final layer normalization.
-		2. logits_head: nn.Linear  [float32, (D, V)] projects embeddings to vocab logits.
+	Attributes:
+		ln: ``nn.LayerNorm``: final layer normalization.
+		logits_head: ``nn.Linear``: [float32, (D, V)] projects embeddings to vocab logits.
 	'''
 
 	def __init__(self, emb_dim: int, tgt_vocab_size: int):
 		''' Initialize the LM head.
 
 		Args:
-			1. emb_dim: int  embedding dimension D.
-			2. tgt_vocab_size: int  target vocabulary size V.
+			emb_dim: ``int``: embedding dimension D.
+			tgt_vocab_size: ``int``: target vocabulary size V.
 		'''
 		super().__init__()
 		self.ln = nn.LayerNorm(emb_dim)
@@ -285,8 +285,8 @@ class TransformerLMHead(nn.Module):
 		''' Project embeddings to vocabulary logits.
 
 		Args:
-			1. x: Tensor  [float32, (B, T, D)] decoder output embeddings.
+			x: ``Tensor[(B, T, D), float32]``: decoder output embeddings.
 		Returns:
-			logits: Tensor  [float32, (B, T, V)] unnormalized logits over vocabulary.
+			``Tensor[(B, T, V), float32]``: unnormalized logits over vocabulary.
 		'''
 		return self.logits_head(self.ln(x))

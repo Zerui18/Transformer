@@ -12,11 +12,10 @@ from components.tokenizers.base_tokenizer import BaseTokenizer
 from components.modules.transformer import TransformerEncoder, TransformerDecoder, TransformerLMHead
 from components.modules.embedding import PosNTokEmbedding
 
-BOS_IDX = 1
-EOS_IDX = 2
-
-
 class Transformer(BaseModel):
+	BOS_IDX = 1
+	EOS_IDX = 2
+
 	''' Encoder-decoder transformer for sequence-to-sequence tasks.
 
 	Composes token+position embeddings, transformer encoder/decoder stacks,
@@ -215,7 +214,7 @@ class Transformer(BaseModel):
 		decoded = []
 		for i in range(x_src.size(0)):
 			tokens = list(self.translate_with_sampling(
-				x_src[i], BOS_IDX, EOS_IDX, sampling=sampling, max_new_tokens=max_new_tokens))
+				x_src[i], self.BOS_IDX, self.EOS_IDX, sampling=sampling, max_new_tokens=max_new_tokens))
 			decoded.append(tokens)
 		return decoded
 
@@ -234,7 +233,7 @@ class Transformer(BaseModel):
 		decoded = []
 		for i in range(x_src.size(0)):
 			tokens = [int(beams[0]) for beams in self.translate_with_beams(
-				x_src[i], BOS_IDX, EOS_IDX, beam_width=beam_width, max_new_tokens=max_new_tokens)]
+				x_src[i], self.BOS_IDX, self.EOS_IDX, beam_width=beam_width, max_new_tokens=max_new_tokens)]
 			decoded.append(tokens)
 		return decoded
 
@@ -314,6 +313,7 @@ class Transformer(BaseModel):
 
 		# Stage 1+T: expand beams
 		enc = enc.repeat(beam_width, 1, 1)  # (Bw, Ts, D)
+		src_mask = src_mask.repeat(beam_width, 1)  # (Bw, Ts)
 		tgt = torch.concat((tgt.repeat(beam_width, 1), topk_idx.unsqueeze(1)), dim=1)  # (Bw, 2)
 
 		for _ in range(max_new_tokens - 1):
@@ -326,14 +326,14 @@ class Transformer(BaseModel):
 			next_probs = F.softmax(logits, dim=-1)
 			joint_probs = tgt_probs.unsqueeze(1) * next_probs  # (Bw, V)
 			topk_probs, topk_flat = torch.topk(joint_probs.flatten(), k=beam_width, dim=-1)
-			topk_idx = torch.tensor(
-				np.stack(np.unravel_index(topk_flat.cpu().numpy(), joint_probs.shape)),
-				device=self.device).T  # (Bw, 2)
-			eos_reached = eos_reached | (topk_idx[:, 1] == eos_idx)
-			tgt = torch.concat((tgt, torch.zeros((beam_width, 1), dtype=torch.long, device=self.device)), dim=1)
-			for (b, idx) in topk_idx:
-				tgt[b, -1] = idx
-				tgt_probs[b] = topk_probs[b]
-			yield tgt[:, -1].cpu().numpy()
-			if torch.all(tgt == eos_idx):
+			# decompose flat indices into (beam_idx, vocab_idx)
+			V = joint_probs.size(1)
+			parent_beams = topk_flat // V  # (Bw,)
+			next_tokens = topk_flat % V  # (Bw,)
+			eos_reached = eos_reached[parent_beams] | (next_tokens == eos_idx)
+			# reorder beams by parent lineage and append new tokens
+			tgt = torch.concat((tgt[parent_beams], next_tokens.unsqueeze(1)), dim=1)  # (Bw, T+1)
+			tgt_probs = topk_probs
+			yield next_tokens.cpu().numpy()
+			if torch.all(eos_reached):
 				break

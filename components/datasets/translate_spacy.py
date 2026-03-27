@@ -13,17 +13,17 @@ from components.datasets.base_dataset import BaseDataset
 class TranslationDatasetSpacy(BaseDataset):
 	''' Translation dataset using spaCy tokenizers and pre-built pickle vocabularies.
 
-	Properties:
-		1. UNK_IDX: int  unknown token index.
-		2. BOS_IDX: int  beginning-of-sequence token index.
-		3. EOS_IDX: int  end-of-sequence token index.
-		4. PAD_IDX: int  padding token index.
-		5. max_seq_len: int  maximum sequence length for character truncation before tokenization.
-		6. df: pd.DataFrame  dataframe holding source and target text lines.
-		7. src_tokenizer: spacy.language.Language  spaCy tokenizer for source language.
-		8. tgt_tokenizer: spacy.language.Language  spaCy tokenizer for target language.
-		9. src_vocab: dict  source vocabulary mapping token strings to indices.
-		10. tgt_vocab: dict  target vocabulary mapping token strings to indices.
+	Attributes:
+		UNK_IDX: ``int``: unknown token index.
+		BOS_IDX: ``int``: beginning-of-sequence token index.
+		EOS_IDX: ``int``: end-of-sequence token index.
+		PAD_IDX: ``int``: padding token index.
+		max_seq_len: ``int``: maximum sequence length for character truncation before tokenization.
+		df: ``pd.DataFrame``: dataframe holding source and target text lines.
+		src_tokenizer: ``spacy.language.Language``: spaCy tokenizer for source language.
+		tgt_tokenizer: ``spacy.language.Language``: spaCy tokenizer for target language.
+		src_vocab: ``dict``: source vocabulary mapping token strings to indices.
+		tgt_vocab: ``dict``: target vocabulary mapping token strings to indices.
 	'''
 
 	UNK_IDX: int = 0
@@ -45,14 +45,14 @@ class TranslationDatasetSpacy(BaseDataset):
 		''' Initialise the translation dataset from parallel text files, spaCy models, and pickled vocabs.
 
 		Args:
-			1. src_model: str  name of the spaCy model for the source language.
-			2. tgt_model: str  name of the spaCy model for the target language.
-			3. src_vocab_file: str  path to the pickled source vocabulary file.
-			4. tgt_vocab_file: str  path to the pickled target vocabulary file.
-			5. src_file: str  path to the source language text file (one sentence per line).
-			6. tgt_file: str  path to the target language text file (one sentence per line).
-			7. max_seq_len: int  maximum character length for truncation before tokenization.
-			8. first_n_lines: int | None  if set, only load the first N lines from each file.
+			src_model: ``str``: name of the spaCy model for the source language.
+			tgt_model: ``str``: name of the spaCy model for the target language.
+			src_vocab_file: ``str``: path to the pickled source vocabulary file.
+			tgt_vocab_file: ``str``: path to the pickled target vocabulary file.
+			src_file: ``str``: path to the source language text file (one sentence per line).
+			tgt_file: ``str``: path to the target language text file (one sentence per line).
+			max_seq_len: ``int``: maximum character length for truncation before tokenization.
+			first_n_lines: ``int | None``: if set, only load the first N lines from each file.
 		'''
 		super().__init__()
 		self.max_seq_len = max_seq_len
@@ -87,7 +87,7 @@ class TranslationDatasetSpacy(BaseDataset):
 		''' Return the number of parallel sentence pairs.
 
 		Returns:
-			length: int  number of samples.
+			``int``: number of samples.
 		'''
 		return len(self.df)
 
@@ -95,11 +95,11 @@ class TranslationDatasetSpacy(BaseDataset):
 		''' Return source input, target input, and target label tensors for a given index.
 
 		Args:
-			1. idx: int  sample index.
+			idx: ``int``: sample index.
 		Returns:
-			x_src: Tensor [int64, (Ts,)]  source token indices.
-			x_tgt: Tensor [int64, (Tt,)]  target input tokens with BOS prefix.
-			y_tgt: Tensor [int64, (Tt,)]  target label tokens with EOS suffix.
+			``Tensor[(Ts,), int64]``: source token indices.
+			``Tensor[(Tt,), int64]``: target input tokens with BOS prefix.
+			``Tensor[(Tt,), int64]``: target label tokens with EOS suffix.
 		'''
 		row = self.df.iloc[idx]
 		src, tgt = row.src, row.tgt
@@ -121,9 +121,9 @@ class TranslationDatasetSpacy(BaseDataset):
 		''' Create a boolean mask that is True for non-padding positions.
 
 		Args:
-			1. x: Tensor [int64, (B, T)]  token id tensor.
+			x: ``Tensor[(B, T), int64]``: token id tensor.
 		Returns:
-			mask: Tensor [bool, (B, T)]  True where token is not PAD.
+			``Tensor[(B, T), bool]``: True where token is not PAD.
 		'''
 		return (x != TranslationDatasetSpacy.PAD_IDX)
 
@@ -132,15 +132,15 @@ class TranslationDatasetSpacy(BaseDataset):
 		''' Return a collate function that pads sequences and produces mask tensors.
 
 		Returns:
-			collate_fn: Callable  collate function producing dict[str, Tensor].
+			``Callable``: collate function producing dict[str, Tensor].
 		'''
 		def collate_function(batch: list[tuple[Tensor, Tensor, Tensor]]) -> dict[str, Tensor]:
 			''' Collate a list of (x_src, x_tgt, y_tgt) tuples into a padded batch dict.
 
 			Args:
-				1. batch: list[tuple[Tensor, Tensor, Tensor]]  list of sample tuples.
+				batch: ``list[tuple[Tensor, Tensor, Tensor]]``: list of sample tuples.
 			Returns:
-				result: dict[str, Tensor]  with keys:
+				``dict[str, Tensor]``: with keys:
 					'x_src' [int64, (B, Ts)], 'x_tgt' [int64, (B, Tt)],
 					'x_src_mask' [bool, (B, Ts)], 'x_tgt_mask' [bool, (B, Tt)],
 					'y_tgt' [int64, (B, Tt)].

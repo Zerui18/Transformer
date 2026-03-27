@@ -22,11 +22,11 @@ def _build_registry(package_path: str, package_name: str, base_class: type) -> d
 	''' Scan a package recursively and collect all concrete subclasses of base_class.
 
 	Args:
-		1. package_path: str  filesystem path to the package directory.
-		2. package_name: str  dotted Python package name.
-		3. base_class: type  the abstract base class to match against.
+		package_path: ``str``: filesystem path to the package directory.
+		package_name: ``str``: dotted Python package name.
+		base_class: ``type``: the abstract base class to match against.
 	Returns:
-		registry: dict[str, type]  class name -> class mapping (excludes abstract classes).
+		``dict[str, type]``: class name -> class mapping (excludes abstract classes).
 	'''
 	registry: dict[str, type] = {}
 	for importer, modname, ispkg in pkgutil.walk_packages(
@@ -51,10 +51,10 @@ def _build_modules_registry(package_path: str, package_name: str) -> dict[str, t
 	and classes from other registries (BaseModel subclasses are in the models registry).
 
 	Args:
-		1. package_path: str  filesystem path to the modules package.
-		2. package_name: str  dotted Python package name.
+		package_path: ``str``: filesystem path to the modules package.
+		package_name: ``str``: dotted Python package name.
 	Returns:
-		registry: dict[str, type]  class name -> class mapping.
+		``dict[str, type]``: class name -> class mapping.
 	'''
 	registry: dict[str, type] = {}
 	for importer, modname, ispkg in pkgutil.walk_packages(

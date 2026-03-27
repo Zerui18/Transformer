@@ -12,15 +12,15 @@ from components.datasets.base_dataset import BaseDataset
 class TranslationDataset(BaseDataset):
 	''' Translation dataset that loads parallel source/target text files and tokenizes with SentencePiece.
 
-	Properties:
-		1. UNK_IDX: int  unknown token index.
-		2. BOS_IDX: int  beginning-of-sequence token index.
-		3. EOS_IDX: int  end-of-sequence token index.
-		4. PAD_IDX: int  padding token index.
-		5. max_seq_len: int  maximum sequence length (tokens are truncated to this length before adding special tokens).
-		6. df: pd.DataFrame  dataframe holding source and target text lines.
-		7. src_tokenizer: SentencePieceProcessor  tokenizer for source language.
-		8. tgt_tokenizer: SentencePieceProcessor  tokenizer for target language.
+	Attributes:
+		UNK_IDX: ``int``: unknown token index.
+		BOS_IDX: ``int``: beginning-of-sequence token index.
+		EOS_IDX: ``int``: end-of-sequence token index.
+		PAD_IDX: ``int``: padding token index.
+		max_seq_len: ``int``: maximum sequence length (tokens are truncated to this length before adding special tokens).
+		df: ``pd.DataFrame``: dataframe holding source and target text lines.
+		src_tokenizer: ``SentencePieceProcessor``: tokenizer for source language.
+		tgt_tokenizer: ``SentencePieceProcessor``: tokenizer for target language.
 	'''
 
 	UNK_IDX: int = 0
@@ -40,12 +40,12 @@ class TranslationDataset(BaseDataset):
 		''' Initialise the translation dataset from parallel text files and SentencePiece models.
 
 		Args:
-			1. src_sp_model_file: str  path to the source language SentencePiece model file.
-			2. tgt_sp_model_file: str  path to the target language SentencePiece model file.
-			3. src_file: str  path to the source language text file (one sentence per line).
-			4. tgt_file: str  path to the target language text file (one sentence per line).
-			5. max_seq_len: int  maximum number of content tokens per sequence (before BOS/EOS).
-			6. first_n_lines: int | None  if set, only load the first N lines from each file.
+			src_sp_model_file: ``str``: path to the source language SentencePiece model file.
+			tgt_sp_model_file: ``str``: path to the target language SentencePiece model file.
+			src_file: ``str``: path to the source language text file (one sentence per line).
+			tgt_file: ``str``: path to the target language text file (one sentence per line).
+			max_seq_len: ``int``: maximum number of content tokens per sequence (before BOS/EOS).
+			first_n_lines: ``int | None``: if set, only load the first N lines from each file.
 		'''
 		super().__init__()
 		self.max_seq_len = max_seq_len
@@ -74,7 +74,7 @@ class TranslationDataset(BaseDataset):
 		''' Return the number of parallel sentence pairs.
 
 		Returns:
-			length: int  number of samples.
+			``int``: number of samples.
 		'''
 		return len(self.df)
 
@@ -82,11 +82,11 @@ class TranslationDataset(BaseDataset):
 		''' Return source input, target input, and target label tensors for a given index.
 
 		Args:
-			1. idx: int  sample index.
+			idx: ``int``: sample index.
 		Returns:
-			x_src: Tensor [int64, (Ts,)]  source tokens with BOS and EOS.
-			x_tgt: Tensor [int64, (Tt,)]  target input tokens with BOS prefix (teacher forcing).
-			y_tgt: Tensor [int64, (Tt,)]  target label tokens with EOS suffix.
+			``Tensor[(Ts,), int64]``: source tokens with BOS and EOS.
+			``Tensor[(Tt,), int64]``: target input tokens with BOS prefix (teacher forcing).
+			``Tensor[(Tt,), int64]``: target label tokens with EOS suffix.
 
 		BPE dropout (sampling) is enabled during tokenization for regularization.
 		'''
@@ -108,9 +108,9 @@ class TranslationDataset(BaseDataset):
 		''' Create a boolean mask that is True for non-padding positions.
 
 		Args:
-			1. x: Tensor [int64, (B, T)]  token id tensor.
+			x: ``Tensor[(B, T), int64]``: token id tensor.
 		Returns:
-			mask: Tensor [bool, (B, T)]  True where token is not PAD.
+			``Tensor[(B, T), bool]``: True where token is not PAD.
 		'''
 		return (x != TranslationDataset.PAD_IDX)
 
@@ -119,15 +119,15 @@ class TranslationDataset(BaseDataset):
 		''' Return a collate function that pads sequences and produces mask tensors.
 
 		Returns:
-			collate_fn: Callable  collate function producing dict[str, Tensor].
+			``Callable``: collate function producing dict[str, Tensor].
 		'''
 		def collate_function(batch: list[tuple[Tensor, Tensor, Tensor]]) -> dict[str, Tensor]:
 			''' Collate a list of (x_src, x_tgt, y_tgt) tuples into a padded batch dict.
 
 			Args:
-				1. batch: list[tuple[Tensor, Tensor, Tensor]]  list of sample tuples.
+				batch: ``list[tuple[Tensor, Tensor, Tensor]]``: list of sample tuples.
 			Returns:
-				result: dict[str, Tensor]  with keys:
+				``dict[str, Tensor]``: with keys:
 					'x_src' [int64, (B, Ts)], 'x_tgt' [int64, (B, Tt)],
 					'x_src_mask' [bool, (B, Ts)], 'x_tgt_mask' [bool, (B, Tt)],
 					'y_tgt' [int64, (B, Tt)].

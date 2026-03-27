@@ -10,9 +10,9 @@ class TokenAccuracyMetric(BaseMetric):
 	Computes the fraction of correctly predicted tokens, averaged across
 	the entire corpus.
 
-	Properties:
-		1. is_differentiable: bool  False — accuracy is non-differentiable.
-		2. higher_is_better: bool  True — higher accuracy is better.
+	Attributes:
+		is_differentiable: ``bool``: False — accuracy is non-differentiable.
+		higher_is_better: ``bool``: True — higher accuracy is better.
 	'''
 
 	is_differentiable: bool = False
@@ -27,7 +27,7 @@ class TokenAccuracyMetric(BaseMetric):
 		''' Initialize the token accuracy metric.
 
 		Args:
-			1. subsample_rate: float | None  fraction of updates to keep. None = all.
+			subsample_rate: ``float | None``: fraction of updates to keep. None = all.
 		'''
 		super().__init__(subsample_rate=subsample_rate)
 		self.add_state('correct', default=torch.tensor(0, dtype=torch.long), dist_reduce_fx='sum')
@@ -37,8 +37,8 @@ class TokenAccuracyMetric(BaseMetric):
 		''' Accumulate correct/total token counts from a batch.
 
 		Args:
-			1. y_pred: Tensor  [float32, (B, T, V)] predicted logits.
-			2. y_true: Tensor  [int64, (B, T)] ground truth token ids.
+			y_pred: ``Tensor[(B, T, V), float32]``: predicted logits.
+			y_true: ``Tensor[(B, T), int64]``: ground truth token ids.
 		'''
 		B, T = y_true.shape
 		pred_ids = y_pred.view(B * T, -1).argmax(dim=-1)  # (B*T,)
@@ -50,7 +50,7 @@ class TokenAccuracyMetric(BaseMetric):
 		''' Compute corpus-level token accuracy.
 
 		Returns:
-			accuracy: Tensor  [float32, ()] accuracy in [0, 1].
+			``Tensor[(), float32]``: accuracy in [0, 1].
 		'''
 		if self.total == 0:
 			return torch.tensor(0.0)

@@ -18,15 +18,15 @@ from components.modules.whisper import AudioEncoder
 class Whisper(BaseModel):
 	''' Whisper-style audio-to-text model with CNN audio encoder + transformer seq2seq.
 
-	Properties:
-		1. criterion: nn.CrossEntropyLoss  loss function.
-		2. tokenizer: BaseTokenizer | None  tokenizer for BLEU reports and translation.
-		3. mel_pos_embedding: PositionalEmbedding  positional embeddings for mel features.
-		4. transcript_embeddings: PosNTokEmbedding  token + position embeddings for transcripts.
-		5. audio_encoder: AudioEncoder  CNN encoder for mel spectrograms.
-		6. encoder: TransformerEncoder  transformer encoder stack.
-		7. decoder: TransformerDecoder  transformer decoder stack.
-		8. lm_head: TransformerLMHead  projection to vocabulary logits.
+	Attributes:
+		criterion: ``nn.CrossEntropyLoss``: loss function.
+		tokenizer: ``BaseTokenizer | None``: tokenizer for BLEU reports and translation.
+		mel_pos_embedding: ``PositionalEmbedding``: positional embeddings for mel features.
+		transcript_embeddings: ``PosNTokEmbedding``: token + position embeddings for transcripts.
+		audio_encoder: ``AudioEncoder``: CNN encoder for mel spectrograms.
+		encoder: ``TransformerEncoder``: transformer encoder stack.
+		decoder: ``TransformerDecoder``: transformer decoder stack.
+		lm_head: ``TransformerLMHead``: projection to vocabulary logits.
 	'''
 
 	def __init__(self,
@@ -50,23 +50,23 @@ class Whisper(BaseModel):
 		''' Initialize the Whisper model.
 
 		Args:
-			1. n_cnn_layers: int  number of CNN layers in the audio encoder.
-			2. enc_max_len: int  maximum mel spectrogram length.
-			3. dec_max_len: int  maximum transcript length.
-			4. vocab_size: int  vocabulary size V.
-			5. n_blocks: int  number of transformer blocks.
-			6. n_heads: int  number of attention heads H.
-			7. emb_dim: int  embedding dimension D.
-			8. dropout: float  dropout rate.
-			9. bias: bool  attention projection bias.
-			10. weight_tying: bool  tie decoder embedding to LM head weights.
-			11. use_grad_ckpt: bool  gradient checkpointing.
-			12. pad_index: int  padding token index.
-			13. attention_type: str  attention variant.
-			14. output_attention: bool  hook attention weights.
-			15. tokenizer: BaseTokenizer | None  for BLEU reports.
-			16. optimizer: dict[str, Any]  optimizer config with 'cls' key and kwargs.
-			17. metrics: dict[str, list[BaseMetric]] | None  stage-keyed metrics.
+			n_cnn_layers: ``int``: number of CNN layers in the audio encoder.
+			enc_max_len: ``int``: maximum mel spectrogram length.
+			dec_max_len: ``int``: maximum transcript length.
+			vocab_size: ``int``: vocabulary size V.
+			n_blocks: ``int``: number of transformer blocks.
+			n_heads: ``int``: number of attention heads H.
+			emb_dim: ``int``: embedding dimension D.
+			dropout: ``float``: dropout rate.
+			bias: ``bool``: attention projection bias.
+			weight_tying: ``bool``: tie decoder embedding to LM head weights.
+			use_grad_ckpt: ``bool``: gradient checkpointing.
+			pad_index: ``int``: padding token index.
+			attention_type: ``str``: attention variant.
+			output_attention: ``bool``: hook attention weights.
+			tokenizer: ``BaseTokenizer | None``: for BLEU reports.
+			optimizer: ``dict[str, Any]``: optimizer config with 'cls' key and kwargs.
+			metrics: ``dict[str, list[BaseMetric]] | None``: stage-keyed metrics.
 		'''
 		super().__init__(optimizer=optimizer, metrics=metrics)
 		self.save_hyperparameters(ignore=['tokenizer', 'metrics'])
@@ -108,10 +108,10 @@ class Whisper(BaseModel):
 		''' Forward pass through CNN + positional embedding + encoder.
 
 		Args:
-			1. src: Tensor  [float32, (B, T, M)] mel spectrogram.
-			2. src_tok_mask: Tensor  [bool, (B, T//2)] source mask (post-CNN length).
+			src: ``Tensor[(B, T, M), float32]``: mel spectrogram.
+			src_tok_mask: ``Tensor[(B, T//2), bool]``: source mask (post-CNN length).
 		Returns:
-			enc: Tensor  [float32, (B, T//2, D)] encoder output.
+			``Tensor[(B, T//2, D), float32]``: encoder output.
 		'''
 		features = self.audio_encoder(src)  # (B, T//2, D)
 		mel_pos = self.mel_pos_embedding(features.size(1))  # (T//2, D)
@@ -122,12 +122,12 @@ class Whisper(BaseModel):
 		''' Forward pass through decoder + LM head.
 
 		Args:
-			1. enc: Tensor  [float32, (B, Ts, D)] encoder output.
-			2. tgt: Tensor  [int64, (B, Tt)] target token ids.
-			3. src_tok_mask: Tensor  [bool, (B, Ts)] source mask.
-			4. tgt_tok_mask: Tensor  [bool, (B, Tt)] target mask.
+			enc: ``Tensor[(B, Ts, D), float32]``: encoder output.
+			tgt: ``Tensor[(B, Tt), int64]``: target token ids.
+			src_tok_mask: ``Tensor[(B, Ts), bool]``: source mask.
+			tgt_tok_mask: ``Tensor[(B, Tt), bool]``: target mask.
 		Returns:
-			logits: Tensor  [float32, (B, Tt, V)] vocabulary logits.
+			``Tensor[(B, Tt, V), float32]``: vocabulary logits.
 		'''
 		dec = self.decoder(enc, self.transcript_embeddings(tgt), src_tok_mask, tgt_tok_mask)
 		return self.lm_head(dec)
@@ -137,12 +137,12 @@ class Whisper(BaseModel):
 		''' Full forward: CNN encode → transformer encode → decode → logits.
 
 		Args:
-			1. src: Tensor  [float32, (B, T, M)] mel spectrogram.
-			2. tgt: Tensor  [int64, (B, Tt)] target token ids.
-			3. src_tok_mask: Tensor  [bool, (B, T//2)] source mask (post-CNN).
-			4. tgt_tok_mask: Tensor  [bool, (B, Tt)] target mask.
+			src: ``Tensor[(B, T, M), float32]``: mel spectrogram.
+			tgt: ``Tensor[(B, Tt), int64]``: target token ids.
+			src_tok_mask: ``Tensor[(B, T//2), bool]``: source mask (post-CNN).
+			tgt_tok_mask: ``Tensor[(B, Tt), bool]``: target mask.
 		Returns:
-			logits: Tensor  [float32, (B, Tt, V)] vocabulary logits.
+			``Tensor[(B, Tt, V), float32]``: vocabulary logits.
 		'''
 		features = self.audio_encoder(src)
 		mel_pos = self.mel_pos_embedding(features.size(1))
@@ -156,10 +156,10 @@ class Whisper(BaseModel):
 		''' Produce requested outputs from a batch.
 
 		Args:
-			1. batch: dict[str, Any]  keys: x_src, x_tgt, x_src_mask, x_tgt_mask, y_tgt.
-			2. requested: set[str]  subset of supports().
+			batch: ``dict[str, Any]``: keys: x_src, x_tgt, x_src_mask, x_tgt_mask, y_tgt.
+			requested: ``set[str]``: subset of supports().
 		Returns:
-			outputs: dict[str, Any]  requested outputs.
+			``dict[str, Any]``: requested outputs.
 		'''
 		y_pred = self(batch['x_src'], batch['x_tgt'], batch['x_src_mask'], batch['x_tgt_mask'])
 		results: dict[str, Any] = {}
@@ -176,7 +176,7 @@ class Whisper(BaseModel):
 		''' Return the set of all output keys this model can produce.
 
 		Returns:
-			keys: set[str]  {'loss', 'y_pred', 'y_true'}.
+			``set[str]``: {'loss', 'y_pred', 'y_true'}.
 		'''
 		return {'loss', 'y_pred', 'y_true'}
 
@@ -238,20 +238,21 @@ class Whisper(BaseModel):
 		''' Translate audio to text token-by-token via sampling.
 
 		Args:
-			1. src: Tensor  [float32, (T, M)] mel spectrogram (unbatched).
-			2. bos_idx: int  BOS token id.
-			3. eos_idx: int  EOS token id.
-			4. sampling: str  'multinomial' or 'argmax'.
-			5. temperature: float  softmax temperature.
-			6. max_new_tokens: int  max tokens to generate.
+			src: ``Tensor[(T, M), float32]``: mel spectrogram (unbatched).
+			bos_idx: ``int``: BOS token id.
+			eos_idx: ``int``: EOS token id.
+			sampling: ``str``: 'multinomial' or 'argmax'.
+			temperature: ``float``: softmax temperature.
+			max_new_tokens: ``int``: max tokens to generate.
 		Yields:
-			token: int  next generated token id.
+			``int``: next generated token id.
 		'''
 		assert sampling in ['multinomial', 'argmax']
 		self.eval()
 		src = src.to(self.device).unsqueeze(0)  # (1, T, M)
+		src = src[:, -self.enc_max_len:]  # clip before computing mask
 		src_mask = torch.ones((1, math.ceil(src.size(1) / 2)), dtype=torch.bool, device=self.device)
-		enc = self.encoder_forward(src[:, -self.enc_max_len:], src_mask)
+		enc = self.encoder_forward(src, src_mask)
 		tgt = torch.tensor([bos_idx], dtype=torch.long, device=self.device).unsqueeze(0)
 
 		for _ in range(max_new_tokens):
@@ -273,18 +274,19 @@ class Whisper(BaseModel):
 		''' Translate audio to text using beam search.
 
 		Args:
-			1. src: Tensor  [float32, (T, M)] mel spectrogram (unbatched).
-			2. bos_idx: int  BOS token id.
-			3. eos_idx: int  EOS token id.
-			4. beam_width: int  number of beams.
-			5. max_new_tokens: int  max tokens to generate.
+			src: ``Tensor[(T, M), float32]``: mel spectrogram (unbatched).
+			bos_idx: ``int``: BOS token id.
+			eos_idx: ``int``: EOS token id.
+			beam_width: ``int``: number of beams.
+			max_new_tokens: ``int``: max tokens to generate.
 		Yields:
-			tokens: np.ndarray  [int64, (beam_width,)] next token for each beam.
+			``np.ndarray``: [int64, (beam_width,)] next token for each beam.
 		'''
 		self.eval()
 		src = src.to(self.device).unsqueeze(0)  # (1, T, M)
+		src = src[:, -self.enc_max_len:]  # clip before computing mask
 		src_mask = torch.ones((1, math.ceil(src.size(1) / 2)), dtype=torch.bool, device=self.device)
-		enc = self.encoder_forward(src[:, -self.enc_max_len:], src_mask)
+		enc = self.encoder_forward(src, src_mask)
 		tgt = torch.tensor([[bos_idx]], dtype=torch.long, device=self.device)
 		tgt_mask = torch.ones_like(tgt, dtype=torch.bool, device=self.device)
 		tgt_probs = torch.ones(beam_width, dtype=torch.float, device=self.device)
@@ -297,6 +299,7 @@ class Whisper(BaseModel):
 		yield topk_idx.cpu().numpy()
 
 		enc = enc.repeat(beam_width, 1, 1)
+		src_mask = src_mask.repeat(beam_width, 1)
 		tgt = torch.concat((tgt.repeat(beam_width, 1), topk_idx.unsqueeze(1)), dim=1)
 
 		for _ in range(max_new_tokens - 1):
@@ -309,14 +312,14 @@ class Whisper(BaseModel):
 			next_probs = F.softmax(logits, dim=-1)
 			joint_probs = tgt_probs.unsqueeze(1) * next_probs
 			topk_probs, topk_flat = torch.topk(joint_probs.flatten(), k=beam_width, dim=-1)
-			topk_idx = torch.tensor(
-				np.stack(np.unravel_index(topk_flat.cpu().numpy(), joint_probs.shape)),
-				device=self.device).T
-			eos_reached = eos_reached | (topk_idx[:, 1] == eos_idx)
-			tgt = torch.concat((tgt, torch.zeros((beam_width, 1), dtype=torch.long, device=self.device)), dim=1)
-			for (b, idx) in topk_idx:
-				tgt[b, -1] = idx
-				tgt_probs[b] = topk_probs[b]
-			yield tgt[:, -1].cpu().numpy()
-			if torch.all(tgt == eos_idx):
+			# decompose flat indices into (beam_idx, vocab_idx)
+			V = joint_probs.size(1)
+			parent_beams = topk_flat // V
+			next_tokens = topk_flat % V
+			eos_reached = eos_reached[parent_beams] | (next_tokens == eos_idx)
+			# reorder beams by parent lineage and append new tokens
+			tgt = torch.concat((tgt[parent_beams], next_tokens.unsqueeze(1)), dim=1)
+			tgt_probs = topk_probs
+			yield next_tokens.cpu().numpy()
+			if torch.all(eos_reached):
 				break

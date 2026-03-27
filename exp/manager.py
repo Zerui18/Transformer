@@ -12,11 +12,11 @@ def _run_experiment_child_process(name: str, directory: str, state: Value,
 	''' Entry point for the child process of an experiment.
 
 	Args:
-		1. name: str  experiment name.
-		2. directory: str  experiment output directory.
-		3. state: Value  shared experiment state.
-		4. err_buffer: Value  shared error message buffer.
-		5. config: ExperimentConfig  experiment configuration.
+		name: ``str``: experiment name.
+		directory: ``str``: experiment output directory.
+		state: ``Value``: shared experiment state.
+		err_buffer: ``Value``: shared error message buffer.
+		config: ``ExperimentConfig``: experiment configuration.
 	'''
 	import torch
 	torch.set_float32_matmul_precision('high')
@@ -30,9 +30,9 @@ def _launch_experiment_process(experiment: Experiment) -> Process:
 	''' Create, start, and return a Process for the given experiment.
 
 	Args:
-		1. experiment: Experiment  the experiment to run.
+		experiment: ``Experiment``: the experiment to run.
 	Returns:
-		process: Process  the started subprocess.
+		``Process``: the started subprocess.
 	'''
 	process = Process(
 		target=_run_experiment_child_process,
@@ -49,21 +49,21 @@ class ExperimentManager:
 	The next queued experiment starts automatically when the current one finishes.
 	In single_process mode, experiments run in the main process for easier debugging.
 
-	Properties:
-		1. master_directory: Path  root directory where all experiment folders are created.
-		2. single_process: bool  whether to run experiments in the main process.
-		3. queued_experiments: list[Experiment]  experiments waiting to run.
-		4. completed_experiments: list[Experiment]  successfully finished experiments.
-		5. stopped_experiments: list[Experiment]  user-stopped experiments.
-		6. failed_experiments: list[Experiment]  experiments that errored.
+	Attributes:
+		master_directory: ``Path``: root directory where all experiment folders are created.
+		single_process: ``bool``: whether to run experiments in the main process.
+		queued_experiments: ``list[Experiment]``: experiments waiting to run.
+		completed_experiments: ``list[Experiment]``: successfully finished experiments.
+		stopped_experiments: ``list[Experiment]``: user-stopped experiments.
+		failed_experiments: ``list[Experiment]``: experiments that errored.
 	'''
 
 	def __init__(self, master_directory: str | Path, single_process: bool = False):
 		''' Initialize the experiment manager.
 
 		Args:
-			1. master_directory: str | Path  root directory for experiment outputs.
-			2. single_process: bool  run in main process (for debugging).
+			master_directory: ``str | Path``: root directory for experiment outputs.
+			single_process: ``bool``: run in main process (for debugging).
 		'''
 		self.single_process = single_process
 		self.master_directory = Path(master_directory)
@@ -90,15 +90,13 @@ class ExperimentManager:
 	@current_experiment.setter
 	def current_experiment(self, experiment: Experiment | None) -> None:
 		self._current_experiment = experiment
-		if experiment is None:
-			self._run_next_in_queue()
 
 	def create_and_append_experiment(self, name: str, config: ExperimentConfig) -> None:
 		''' Create an Experiment from a config and enqueue it.
 
 		Args:
-			1. name: str  experiment name (also used as subdirectory name).
-			2. config: ExperimentConfig  the experiment configuration.
+			name: ``str``: experiment name (also used as subdirectory name).
+			config: ``ExperimentConfig``: the experiment configuration.
 		'''
 		state = Value('i', ExperimentState.QUEUING)
 		err_buffer = Array('c', 1024)
@@ -111,7 +109,7 @@ class ExperimentManager:
 		''' Add an experiment to the queue. Starts it immediately if nothing is running.
 
 		Args:
-			1. experiment: Experiment  the experiment to enqueue.
+			experiment: ``Experiment``: the experiment to enqueue.
 		'''
 		self.queued_experiments.append(experiment)
 		if self.current_experiment is None:
@@ -127,8 +125,8 @@ class ExperimentManager:
 		''' Reorder the queue by moving an experiment from one position to another.
 
 		Args:
-			1. src_index: int  current position.
-			2. dst_index: int  target position.
+			src_index: ``int``: current position.
+			dst_index: ``int``: target position.
 		'''
 		self.queued_experiments.insert(dst_index, self.queued_experiments.pop(src_index))
 
@@ -136,7 +134,7 @@ class ExperimentManager:
 		''' Re-enqueue a stopped experiment.
 
 		Args:
-			1. index: int  position in the stopped queue.
+			index: ``int``: position in the stopped queue.
 		'''
 		experiment = self.stopped_experiments.pop(index)
 		experiment.state = ExperimentState.QUEUING
@@ -153,7 +151,7 @@ class ExperimentManager:
 		''' Remove an experiment from the queue and mark it stopped.
 
 		Args:
-			1. index: int  position in the queued list.
+			index: ``int``: position in the queued list.
 		'''
 		experiment = self.queued_experiments.pop(index)
 		experiment.state = ExperimentState.STOPPED
@@ -170,7 +168,7 @@ class ExperimentManager:
 		''' Remove a stopped experiment and delete its folder.
 
 		Args:
-			1. index: int  position in the stopped queue.
+			index: ``int``: position in the stopped queue.
 		'''
 		self.stopped_experiments.pop(index).remove_exp_folder()
 
@@ -184,7 +182,7 @@ class ExperimentManager:
 		''' Remove a failed experiment and delete its folder.
 
 		Args:
-			1. index: int  position in the failed queue.
+			index: ``int``: position in the failed queue.
 		'''
 		self.failed_experiments.pop(index).remove_exp_folder()
 
@@ -207,15 +205,20 @@ class ExperimentManager:
 			'Cannot start an experiment while another is running.'
 		self.current_experiment = self.queued_experiments.pop(index)
 		if self.single_process:
-			self.current_experiment.run()
-			# move to appropriate queue based on final state
-			if self.current_experiment.state == ExperimentState.COMPLETED:
-				self.completed_experiments.append(self.current_experiment)
-			elif self.current_experiment.state == ExperimentState.STOPPED:
-				self.stopped_experiments.append(self.current_experiment)
-			elif self.current_experiment.state == ExperimentState.FAILED:
-				self.failed_experiments.append(self.current_experiment)
-			self.current_experiment = None
+			# run experiments sequentially in a loop (avoids recursive setter)
+			while self.current_experiment is not None:
+				self.current_experiment.run()
+				if self.current_experiment.state == ExperimentState.COMPLETED:
+					self.completed_experiments.append(self.current_experiment)
+				elif self.current_experiment.state == ExperimentState.STOPPED:
+					self.stopped_experiments.append(self.current_experiment)
+				elif self.current_experiment.state == ExperimentState.FAILED:
+					self.failed_experiments.append(self.current_experiment)
+				# advance to next in queue or stop
+				if self.queued_experiments:
+					self.current_experiment = self.queued_experiments.pop(0)
+				else:
+					self.current_experiment = None
 		else:
 			self._current_process = _launch_experiment_process(self.current_experiment)
 
@@ -230,7 +233,8 @@ class ExperimentManager:
 		if self._current_process.is_alive():
 			self._current_process.join(timeout=5.0)
 		if self._current_process.is_alive():
-			self._current_process.close()
+			self._current_process.terminate()
+			self._current_process.join(timeout=3.0)
 		self._current_process = None
 		self.current_experiment = None
 		return exp

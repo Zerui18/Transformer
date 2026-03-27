@@ -18,6 +18,6 @@ class BaseDataset(Dataset):
 		''' Return a collate function for the dataloader, or None for the default.
 
 		Returns:
-			collate_fn: Callable | None  a function that takes a list of samples and returns a dict[str, Tensor] batch.
+			``Callable | None``: a function that takes a list of samples and returns a dict[str, Tensor] batch.
 		'''
 		return None

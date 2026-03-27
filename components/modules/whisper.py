@@ -9,21 +9,21 @@ class AudioEncoder(nn.Module):
 	Applies a stack of 1D convolutions with GELU activations. The final layer
 	uses stride 2 to halve the temporal dimension.
 
-	Properties:
-		1. n_layers: int  number of convolutional layers.
-		2. kernel_size: int  kernel size for all convolutions.
-		3. n_filters: int  number of output channels (= embedding dim).
-		4. convs: nn.ModuleList  the convolutional layers.
+	Attributes:
+		n_layers: ``int``: number of convolutional layers.
+		kernel_size: ``int``: kernel size for all convolutions.
+		n_filters: ``int``: number of output channels (= embedding dim).
+		convs: ``nn.ModuleList``: the convolutional layers.
 	'''
 
 	def __init__(self, n_layers: int = 2, kernel_size: int = 3, n_filters: int = 256, n_mels: int = 80):
 		''' Initialize the audio encoder.
 
 		Args:
-			1. n_layers: int  number of 1D convolution layers.
-			2. kernel_size: int  convolution kernel size.
-			3. n_filters: int  number of output channels (embedding dimension D).
-			4. n_mels: int  number of mel frequency bins in the input.
+			n_layers: ``int``: number of 1D convolution layers.
+			kernel_size: ``int``: convolution kernel size.
+			n_filters: ``int``: number of output channels (embedding dimension D).
+			n_mels: ``int``: number of mel frequency bins in the input.
 		'''
 		super().__init__()
 		self.n_layers = n_layers
@@ -43,9 +43,9 @@ class AudioEncoder(nn.Module):
 		''' Encode mel spectrogram features into embeddings.
 
 		Args:
-			1. x: Tensor  [float32, (B, T, M)] mel spectrogram input, M = mel bins.
+			x: ``Tensor[(B, T, M), float32]``: mel spectrogram input, M = mel bins.
 		Returns:
-			out: Tensor  [float32, (B, T//2, D)] encoded features, D = n_filters.
+			``Tensor[(B, T//2, D), float32]``: encoded features, D = n_filters.
 		'''
 		x = x.transpose(-2, -1)  # (B, M, T) — channels first for Conv1d
 		for conv in self.convs:

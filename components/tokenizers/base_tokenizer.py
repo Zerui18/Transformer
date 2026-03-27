@@ -8,11 +8,11 @@ class BaseTokenizer(abc.ABC):
 	(special tokens, padding, truncation). Subclasses implement _tokenize() and
 	_detokenize() for core encoding/decoding logic only.
 
-	Properties:
-		1. bos_token_id: int | None  beginning-of-sequence token id.
-		2. eos_token_id: int | None  end-of-sequence token id.
-		3. pad_token_id: int | None  padding token id.
-		4. max_length: int | None  maximum sequence length (including special tokens).
+	Attributes:
+		bos_token_id: ``int | None``: beginning-of-sequence token id.
+		eos_token_id: ``int | None``: end-of-sequence token id.
+		pad_token_id: ``int | None``: padding token id.
+		max_length: ``int | None``: maximum sequence length (including special tokens).
 	'''
 
 	def __init__(self,
@@ -23,10 +23,10 @@ class BaseTokenizer(abc.ABC):
 		''' Initialize the base tokenizer.
 
 		Args:
-			1. bos_token_id: int | None  beginning-of-sequence token id, prepended if set.
-			2. eos_token_id: int | None  end-of-sequence token id, appended if set.
-			3. pad_token_id: int | None  padding token id, used for right-padding if set.
-			4. max_length: int | None  maximum sequence length; truncates if exceeded.
+			bos_token_id: ``int | None``: beginning-of-sequence token id, prepended if set.
+			eos_token_id: ``int | None``: end-of-sequence token id, appended if set.
+			pad_token_id: ``int | None``: padding token id, used for right-padding if set.
+			max_length: ``int | None``: maximum sequence length; truncates if exceeded.
 		'''
 		self.bos_token_id = bos_token_id
 		self.eos_token_id = eos_token_id
@@ -37,11 +37,11 @@ class BaseTokenizer(abc.ABC):
 		''' Tokenize text with optional special tokens, truncation, and padding.
 
 		Args:
-			1. text: str  the input text to tokenize.
-			2. add_special_tokens: bool  whether to prepend BOS and append EOS.
-			3. pad: bool  whether to right-pad to max_length.
+			text: ``str``: the input text to tokenize.
+			add_special_tokens: ``bool``: whether to prepend BOS and append EOS.
+			pad: ``bool``: whether to right-pad to max_length.
 		Returns:
-			tokens: list[int]  encoded token ids.
+			``list[int]``: encoded token ids.
 		'''
 		tokens = self._tokenize(text)
 
@@ -66,10 +66,10 @@ class BaseTokenizer(abc.ABC):
 		''' Decode token ids back to text, optionally stripping special tokens.
 
 		Args:
-			1. tokens: list[int]  token ids to decode.
-			2. strip_special_tokens: bool  whether to remove BOS/EOS/PAD before decoding.
+			tokens: ``list[int]``: token ids to decode.
+			strip_special_tokens: ``bool``: whether to remove BOS/EOS/PAD before decoding.
 		Returns:
-			text: str  decoded text.
+			``str``: decoded text.
 		'''
 		if strip_special_tokens:
 			special = {t for t in (self.bos_token_id, self.eos_token_id, self.pad_token_id) if t is not None}
@@ -82,9 +82,9 @@ class BaseTokenizer(abc.ABC):
 		''' Core tokenization logic. Subclasses must implement this.
 
 		Args:
-			1. text: str  raw input text.
+			text: ``str``: raw input text.
 		Returns:
-			tokens: list[int]  encoded token ids (without special tokens).
+			``list[int]``: encoded token ids (without special tokens).
 		'''
 		...
 
@@ -93,8 +93,8 @@ class BaseTokenizer(abc.ABC):
 		''' Core detokenization logic. Subclasses must implement this.
 
 		Args:
-			1. tokens: list[int]  token ids (already stripped of special tokens).
+			tokens: ``list[int]``: token ids (already stripped of special tokens).
 		Returns:
-			text: str  decoded text.
+			``str``: decoded text.
 		'''
 		...

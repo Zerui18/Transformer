@@ -11,11 +11,11 @@ from components.modules.softmax1 import softmax1
 class Softmax1SelfAttention(MultiHeadSelfAttentionBase):
 	'''Multi-head self-attention using softmax1 (softmax with +1 in the normalising constant) instead of standard softmax.
 
-	Properties:
-		1. attn_dropout: nn.Dropout  dropout applied to attention weights.
-		2. resid_dropout: nn.Dropout  dropout applied after the output projection.
-		3. qkv_projection: nn.Linear  combined Q, K, V linear projection (D -> 3D).
-		4. c_proj: nn.Linear  output linear projection (D -> D).
+	Attributes:
+		attn_dropout: ``nn.Dropout``: dropout applied to attention weights.
+		resid_dropout: ``nn.Dropout``: dropout applied after the output projection.
+		qkv_projection: ``nn.Linear``: combined Q, K, V linear projection (D -> 3D).
+		c_proj: ``nn.Linear``: output linear projection (D -> D).
 
 	The softmax1 variant adds 1.0 to the normalising constant, allowing the attention
 	mechanism to effectively attend to nothing when all scores are low. This produces
@@ -26,8 +26,8 @@ class Softmax1SelfAttention(MultiHeadSelfAttentionBase):
 		'''Initialise Softmax1SelfAttention layers.
 
 		Args:
-			1. *args: passed to MultiHeadSelfAttentionBase.
-			2. **kwargs: passed to MultiHeadSelfAttentionBase.
+			*args: passed to MultiHeadSelfAttentionBase.
+			**kwargs: passed to MultiHeadSelfAttentionBase.
 		'''
 		super().__init__(*args, **kwargs)
 		self.attn_dropout = nn.Dropout(self.dropout)
@@ -41,10 +41,10 @@ class Softmax1SelfAttention(MultiHeadSelfAttentionBase):
 		'''Compute self-attention using softmax1 normalisation.
 
 		Args:
-			1. x: Tensor  [float32, (B, T, D)] input embeddings.
-			2. tok_mask: Tensor  [bool, (B, T)] per-token mask; False is masked out, True is preserved.
+			x: ``Tensor[(B, T, D), float32]``: input embeddings.
+			tok_mask: ``Tensor[(B, T), bool]``: per-token mask; False is masked out, True is preserved.
 		Returns:
-			result: tuple[Tensor, Tensor]  (output (B, T, D), attention_weights (B, H, T, T)).
+			``tuple[Tensor, Tensor]``: (output (B, T, D), attention_weights (B, H, T, T)).
 		'''
 		B, T, D = x.shape
 		H = self.n_heads
@@ -77,12 +77,12 @@ class Softmax1SelfAttention(MultiHeadSelfAttentionBase):
 class Softmax1CrossAttention(MultiHeadCrossAttentionBase):
 	'''Multi-head cross-attention using softmax1 (softmax with +1 in the normalising constant) instead of standard softmax.
 
-	Properties:
-		1. attn_dropout: nn.Dropout  dropout applied to attention weights.
-		2. resid_dropout: nn.Dropout  dropout applied after the output projection.
-		3. q_projection: nn.Linear  query linear projection (D -> D).
-		4. kv_projection: nn.Linear  combined K, V linear projection (D -> 2D).
-		5. c_proj: nn.Linear  output linear projection (D -> D).
+	Attributes:
+		attn_dropout: ``nn.Dropout``: dropout applied to attention weights.
+		resid_dropout: ``nn.Dropout``: dropout applied after the output projection.
+		q_projection: ``nn.Linear``: query linear projection (D -> D).
+		kv_projection: ``nn.Linear``: combined K, V linear projection (D -> 2D).
+		c_proj: ``nn.Linear``: output linear projection (D -> D).
 
 	The softmax1 variant adds 1.0 to the normalising constant, allowing the attention
 	mechanism to effectively attend to nothing when all scores are low. This produces
@@ -93,8 +93,8 @@ class Softmax1CrossAttention(MultiHeadCrossAttentionBase):
 		'''Initialise Softmax1CrossAttention layers.
 
 		Args:
-			1. *args: passed to MultiHeadCrossAttentionBase.
-			2. **kwargs: passed to MultiHeadCrossAttentionBase.
+			*args: passed to MultiHeadCrossAttentionBase.
+			**kwargs: passed to MultiHeadCrossAttentionBase.
 		'''
 		super().__init__(*args, **kwargs)
 		self.attn_dropout = nn.Dropout(self.dropout)
@@ -109,12 +109,12 @@ class Softmax1CrossAttention(MultiHeadCrossAttentionBase):
 		'''Compute cross-attention using softmax1 normalisation.
 
 		Args:
-			1. x_q: Tensor  [float32, (B, Tq, D)] query embeddings.
-			2. x_kv: Tensor  [float32, (B, Tk, D)] key/value embeddings.
-			3. q_tok_mask: Tensor  [bool, (B, Tq)] query token mask; False is masked out.
-			4. kv_tok_mask: Tensor  [bool, (B, Tk)] key/value token mask; False is masked out.
+			x_q: ``Tensor[(B, Tq, D), float32]``: query embeddings.
+			x_kv: ``Tensor[(B, Tk, D), float32]``: key/value embeddings.
+			q_tok_mask: ``Tensor[(B, Tq), bool]``: query token mask; False is masked out.
+			kv_tok_mask: ``Tensor[(B, Tk), bool]``: key/value token mask; False is masked out.
 		Returns:
-			result: tuple[Tensor, Tensor]  (output (B, Tq, D), attention_weights (B, H, Tq, Tk)).
+			``tuple[Tensor, Tensor]``: (output (B, Tq, D), attention_weights (B, H, Tq, Tk)).
 		'''
 		B, Tq, D = x_q.shape
 		_, Tk, _ = x_kv.shape

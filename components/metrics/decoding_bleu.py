@@ -13,11 +13,11 @@ class DecodingBLEUMetric(BaseMetric):
 	the model's produce() method) and reference token ids. Detokenizes and
 	re-tokenizes both sides for normalization before computing sentence BLEU.
 
-	Properties:
-		1. is_differentiable: bool  False — BLEU is non-differentiable.
-		2. higher_is_better: bool  True — higher BLEU is better.
-		3. tokenizer: BaseTokenizer  used for detokenize/retokenize normalization.
-		4. decode_key: str  the produce() output key containing decoded token lists.
+	Attributes:
+		is_differentiable: ``bool``: False — BLEU is non-differentiable.
+		higher_is_better: ``bool``: True — higher BLEU is better.
+		tokenizer: ``BaseTokenizer``: used for detokenize/retokenize normalization.
+		decode_key: ``str``: the produce() output key containing decoded token lists.
 	'''
 
 	is_differentiable: bool = False
@@ -36,10 +36,10 @@ class DecodingBLEUMetric(BaseMetric):
 		''' Initialize the decoding BLEU metric.
 
 		Args:
-			1. tokenizer: BaseTokenizer  tokenizer for detokenize/retokenize normalization.
-			2. decode_key: str  which produce() key holds the decoded token lists.
-			3. name: str | None  display name for logging (defaults to class name).
-			4. num_samples: int  number of validation samples to decode at epoch end.
+			tokenizer: ``BaseTokenizer``: tokenizer for detokenize/retokenize normalization.
+			decode_key: ``str``: which produce() key holds the decoded token lists.
+			name: ``str | None``: display name for logging (defaults to class name).
+			num_samples: ``int``: number of validation samples to decode at epoch end.
 		'''
 		super().__init__(name=name, frequency='epoch', num_samples=num_samples)
 		self.tokenizer = tokenizer
@@ -50,7 +50,7 @@ class DecodingBLEUMetric(BaseMetric):
 		''' Accumulate per-sentence BLEU scores from decoded outputs.
 
 		Args:
-			1. **kwargs: must contain self.decode_key (list[list[int]]) and 'y_true' (Tensor).
+			**kwargs: must contain self.decode_key (list[list[int]]) and 'y_true' (Tensor).
 
 		The decode_key value is a list of decoded token lists (one per sample in the batch).
 		y_true is the reference target tensor (B, T).
@@ -69,10 +69,10 @@ class DecodingBLEUMetric(BaseMetric):
 		''' Compute BLEU-4 for a single pair via detokenize-retokenize normalization.
 
 		Args:
-			1. pred: list[int]  decoded prediction token ids.
-			2. reference: list[int]  reference token ids.
+			pred: ``list[int]``: decoded prediction token ids.
+			reference: ``list[int]``: reference token ids.
 		Returns:
-			score: float  BLEU-4 score in [0, 1].
+			``float``: BLEU-4 score in [0, 1].
 		'''
 		pred_text = self.tokenizer.detokenize(pred)
 		ref_text = self.tokenizer.detokenize(reference)
@@ -86,7 +86,7 @@ class DecodingBLEUMetric(BaseMetric):
 		''' Compute corpus-level average BLEU-4 score.
 
 		Returns:
-			bleu: Tensor  [float32, ()] average BLEU-4 score.
+			``Tensor[(), float32]``: average BLEU-4 score.
 		'''
 		if not self.bleu_scores:
 			return torch.tensor(0.0)

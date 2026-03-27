@@ -15,14 +15,14 @@ from components.datasets.base_dataset import BaseDataset
 class ATISDataset(BaseDataset):
 	''' ATIS speech recognition dataset that loads mel spectrograms and transcripts for Whisper-style models.
 
-	Properties:
-		1. UNK_IDX: int  unknown token index.
-		2. BOS_IDX: int  beginning-of-sequence token index.
-		3. EOS_IDX: int  end-of-sequence token index.
-		4. PAD_IDX: int  padding token index.
-		5. max_seq_len: int  maximum decoder sequence length (tokens are truncated to this before special tokens).
-		6. df: pd.DataFrame  dataframe with columns 'file_id', 'transcript', and 'mel'.
-		7. tokenizer: SentencePieceProcessor  tokenizer for transcript text.
+	Attributes:
+		UNK_IDX: ``int``: unknown token index.
+		BOS_IDX: ``int``: beginning-of-sequence token index.
+		EOS_IDX: ``int``: end-of-sequence token index.
+		PAD_IDX: ``int``: padding token index.
+		max_seq_len: ``int``: maximum decoder sequence length (tokens are truncated to this before special tokens).
+		df: ``pd.DataFrame``: dataframe with columns 'file_id', 'transcript', and 'mel'.
+		tokenizer: ``SentencePieceProcessor``: tokenizer for transcript text.
 	'''
 
 	UNK_IDX: int = 0
@@ -41,11 +41,11 @@ class ATISDataset(BaseDataset):
 		''' Initialise the ATIS dataset from mel spectrogram files, a transcripts file, and a SentencePiece model.
 
 		Args:
-			1. sp_model: str  path to the SentencePiece model file for transcript tokenization.
-			2. mel_dir: str  directory containing .npy mel spectrogram files named by file id.
-			3. transcripts_file: str  path to the transcripts file (each line: 8-char file_id followed by transcript).
-			4. dec_max_len: int  maximum decoder sequence length for transcript tokens.
-			5. first_n_lines: int | None  if set, only load the first N lines from the transcripts file.
+			sp_model: ``str``: path to the SentencePiece model file for transcript tokenization.
+			mel_dir: ``str``: directory containing .npy mel spectrogram files named by file id.
+			transcripts_file: ``str``: path to the transcripts file (each line: 8-char file_id followed by transcript).
+			dec_max_len: ``int``: maximum decoder sequence length for transcript tokens.
+			first_n_lines: ``int | None``: if set, only load the first N lines from the transcripts file.
 		'''
 		super().__init__()
 		self.max_seq_len = dec_max_len
@@ -82,7 +82,7 @@ class ATISDataset(BaseDataset):
 		''' Return the number of samples with valid mel spectrograms.
 
 		Returns:
-			length: int  number of samples.
+			``int``: number of samples.
 		'''
 		return len(self.df)
 
@@ -90,11 +90,11 @@ class ATISDataset(BaseDataset):
 		''' Return mel spectrogram source, decoder input, and decoder label tensors for a given index.
 
 		Args:
-			1. idx: int  sample index.
+			idx: ``int``: sample index.
 		Returns:
-			x_src: Tensor [float32, (Ts, C)]  transposed mel spectrogram (time steps x mel channels).
-			x_tgt: Tensor [int64, (Tt,)]  decoder input tokens with BOS prefix.
-			y_tgt: Tensor [int64, (Tt,)]  decoder label tokens with EOS suffix.
+			``Tensor[(Ts, C), float32]``: transposed mel spectrogram (time steps x mel channels).
+			``Tensor[(Tt,), int64]``: decoder input tokens with BOS prefix.
+			``Tensor[(Tt,), int64]``: decoder label tokens with EOS suffix.
 
 		BPE dropout (sampling) is enabled during tokenization for regularization.
 		'''
@@ -115,9 +115,9 @@ class ATISDataset(BaseDataset):
 		''' Create a boolean mask that is True for non-padding positions.
 
 		Args:
-			1. x: Tensor [int64, (B, T)]  token id tensor.
+			x: ``Tensor[(B, T), int64]``: token id tensor.
 		Returns:
-			mask: Tensor [bool, (B, T)]  True where token is not PAD.
+			``Tensor[(B, T), bool]``: True where token is not PAD.
 		'''
 		return (x != ATISDataset.PAD_IDX)
 
@@ -126,10 +126,10 @@ class ATISDataset(BaseDataset):
 		''' Create a boolean mask from sequence lengths.
 
 		Args:
-			1. max_len: int  maximum sequence length for the mask width.
-			2. lengths: Tensor [int64, (B,)]  actual lengths of each sequence in the batch.
+			max_len: ``int``: maximum sequence length for the mask width.
+			lengths: ``Tensor[(B,), int64]``: actual lengths of each sequence in the batch.
 		Returns:
-			mask: Tensor [bool, (B, max_len)]  True for positions within each sequence length.
+			``Tensor[(B, max_len), bool]``: True for positions within each sequence length.
 		'''
 		return torch.arange(max_len)[None, :] < lengths[:, None]
 
@@ -138,15 +138,15 @@ class ATISDataset(BaseDataset):
 		''' Return a collate function that pads mel spectrograms and token sequences.
 
 		Returns:
-			collate_fn: Callable  collate function producing dict[str, Tensor].
+			``Callable``: collate function producing dict[str, Tensor].
 		'''
 		def collate_function(batch: list[tuple[Tensor, Tensor, Tensor]]) -> dict[str, Tensor]:
 			''' Collate a list of (x_src, x_tgt, y_tgt) tuples into a padded batch dict.
 
 			Args:
-				1. batch: list[tuple[Tensor, Tensor, Tensor]]  list of sample tuples.
+				batch: ``list[tuple[Tensor, Tensor, Tensor]]``: list of sample tuples.
 			Returns:
-				result: dict[str, Tensor]  with keys:
+				``dict[str, Tensor]``: with keys:
 					'x_src' [float32, (B, Ts, C)], 'x_tgt' [int64, (B, Tt)],
 					'x_src_mask' [bool, (B, Ts//2)], 'x_tgt_mask' [bool, (B, Tt)],
 					'y_tgt' [int64, (B, Tt)].

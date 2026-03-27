@@ -4,7 +4,7 @@ from components.modules.attention.stock import StockSelfAttention, StockCrossAtt
 class MemEfficientSelfAttention(StockSelfAttention):
 	'''Multi-head self-attention using the memory-efficient SDPA backend.
 
-	Properties:
+	Attributes:
 		(inherited from StockSelfAttention)
 
 	Thin wrapper around StockSelfAttention that overrides get_attention_args() to
@@ -16,7 +16,7 @@ class MemEfficientSelfAttention(StockSelfAttention):
 		'''Return SDPA backend flags with memory-efficient attention enabled.
 
 		Returns:
-			args: dict[str, bool]  keys are enable_math, enable_flash, enable_mem_efficient.
+			``dict[str, bool]``: keys are enable_math, enable_flash, enable_mem_efficient.
 		'''
 		return {
 			'enable_math': False,
@@ -28,7 +28,7 @@ class MemEfficientSelfAttention(StockSelfAttention):
 class MemEfficientCrossAttention(StockCrossAttention):
 	'''Multi-head cross-attention using the memory-efficient SDPA backend.
 
-	Properties:
+	Attributes:
 		(inherited from StockCrossAttention)
 
 	Thin wrapper around StockCrossAttention that overrides get_attention_args() to
@@ -40,7 +40,7 @@ class MemEfficientCrossAttention(StockCrossAttention):
 		'''Return SDPA backend flags with memory-efficient attention enabled.
 
 		Returns:
-			args: dict[str, bool]  keys are enable_math, enable_flash, enable_mem_efficient.
+			``dict[str, bool]``: keys are enable_math, enable_flash, enable_mem_efficient.
 		'''
 		return {
 			'enable_math': False,

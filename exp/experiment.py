@@ -13,12 +13,12 @@ from multiprocessing import Value, Array
 class ExperimentState:
 	''' Enum-like constants for experiment lifecycle states.
 
-	Properties:
-		1. QUEUING: int  waiting in queue to run.
-		2. RUNNING: int  currently executing.
-		3. COMPLETED: int  finished successfully.
-		4. STOPPED: int  stopped by the user.
-		5. FAILED: int  terminated due to an error.
+	Attributes:
+		QUEUING: ``int``: waiting in queue to run.
+		RUNNING: ``int``: currently executing.
+		COMPLETED: ``int``: finished successfully.
+		STOPPED: ``int``: stopped by the user.
+		FAILED: ``int``: terminated due to an error.
 	'''
 	QUEUING = 0
 	RUNNING = 1
@@ -30,15 +30,15 @@ class ExperimentState:
 class ExperimentStopper(Callback):
 	''' Lightning callback that stops the trainer when the experiment state transitions to STOPPED.
 
-	Properties:
-		1. state: Value  shared multiprocessing.Value holding the ExperimentState int.
+	Attributes:
+		state: ``Value``: shared multiprocessing.Value holding the ExperimentState int.
 	'''
 
 	def __init__(self, state: Value):
 		''' Initialize the stopper callback.
 
 		Args:
-			1. state: Value  shared experiment state.
+			state: ``Value``: shared experiment state.
 		'''
 		self.state = state
 
@@ -46,7 +46,7 @@ class ExperimentStopper(Callback):
 		''' Return True if the experiment has been marked as STOPPED.
 
 		Returns:
-			should_stop: bool  whether the trainer should stop.
+			``bool``: whether the trainer should stop.
 		'''
 		if self.state is None:
 			return False
@@ -66,12 +66,12 @@ class ExperimentStopper(Callback):
 class ExperimentConfig:
 	''' Stores the three config dicts (model, dataset, training) for an experiment.
 
-	Properties:
-		1. model_config: dict  model class, hparams, tokenizer, and metrics configuration.
-		2. dataset_config: dict  dataset class, init args, and dataloader args per split.
-		3. training_config: dict  Lightning Trainer keyword arguments.
-		4. resume_from_directory: str | None  experiment directory to resume from.
-		5. resume_from_checkpoint: str | None  checkpoint path to resume from.
+	Attributes:
+		model_config: ``dict``: model class, hparams, tokenizer, and metrics configuration.
+		dataset_config: ``dict``: dataset class, init args, and dataloader args per split.
+		training_config: ``dict``: Lightning Trainer keyword arguments.
+		resume_from_directory: ``str | None``: experiment directory to resume from.
+		resume_from_checkpoint: ``str | None``: checkpoint path to resume from.
 	'''
 
 	def __init__(self, dataset_config: dict, model_config: dict, training_config: dict,
@@ -80,11 +80,11 @@ class ExperimentConfig:
 		''' Create an ExperimentConfig.
 
 		Args:
-			1. dataset_config: dict  dataset configuration per split.
-			2. model_config: dict  model class, hparams, tokenizer, metrics.
-			3. training_config: dict  Lightning Trainer kwargs.
-			4. resume_from_directory: str | None  path to resume experiment from.
-			5. resume_from_checkpoint: str | None  checkpoint name to resume from.
+			dataset_config: ``dict``: dataset configuration per split.
+			model_config: ``dict``: model class, hparams, tokenizer, metrics.
+			training_config: ``dict``: Lightning Trainer kwargs.
+			resume_from_directory: ``str | None``: path to resume experiment from.
+			resume_from_checkpoint: ``str | None``: checkpoint name to resume from.
 		'''
 		self.dataset_config = dataset_config
 		self.model_config = model_config
@@ -111,13 +111,13 @@ class ExperimentConfig:
 		''' Load an ExperimentConfig from three YAML files.
 
 		Args:
-			1. model_config_file: str  path to model.yaml.
-			2. dataset_config_file: str  path to dataset.yaml.
-			3. training_config_file: str  path to training.yaml.
-			4. resume_from_directory: str | None  experiment directory to resume from.
-			5. resume_from_checkpoint: str | None  checkpoint name to resume from.
+			model_config_file: ``str``: path to model.yaml.
+			dataset_config_file: ``str``: path to dataset.yaml.
+			training_config_file: ``str``: path to training.yaml.
+			resume_from_directory: ``str | None``: experiment directory to resume from.
+			resume_from_checkpoint: ``str | None``: checkpoint name to resume from.
 		Returns:
-			config: ExperimentConfig  the loaded config.
+			``ExperimentConfig``: the loaded config.
 		'''
 		with open(model_config_file, 'r') as f:
 			model_config = yaml.safe_load(f)
@@ -134,10 +134,10 @@ class ExperimentConfig:
 		''' Load an ExperimentConfig for resuming from a saved experiment directory.
 
 		Args:
-			1. directory: str  path to the experiment directory.
-			2. checkpoint_name: str | None  name of the checkpoint file to resume from.
+			directory: ``str``: path to the experiment directory.
+			checkpoint_name: ``str | None``: name of the checkpoint file to resume from.
 		Returns:
-			config: ExperimentConfig  the loaded config.
+			``ExperimentConfig``: the loaded config.
 		'''
 		d = Path(directory)
 		# try new filenames first, fall back to old
@@ -156,13 +156,13 @@ class Experiment:
 	are JIT-initialized in the subprocess via run(). State is shared with the parent
 	process through multiprocessing.Value/Array.
 
-	Properties:
-		1. name: str  human-readable experiment name.
-		2. directory: Path  experiment output directory.
-		3. config: ExperimentConfig  the experiment configuration.
-		4. dls: dict[str, DataLoader] | None  JIT-initialized dataloaders.
-		5. model: LightningModule | None  JIT-initialized model.
-		6. trainer: Trainer | None  JIT-initialized Lightning Trainer.
+	Attributes:
+		name: ``str``: human-readable experiment name.
+		directory: ``Path``: experiment output directory.
+		config: ``ExperimentConfig``: the experiment configuration.
+		dls: ``dict[str, DataLoader] | None``: JIT-initialized dataloaders.
+		model: ``LightningModule | None``: JIT-initialized model.
+		trainer: ``Trainer | None``: JIT-initialized Lightning Trainer.
 	'''
 
 	dls: dict[str, DataLoader] | None = None
@@ -197,11 +197,11 @@ class Experiment:
 		''' Create an Experiment.
 
 		Args:
-			1. name: str  experiment name.
-			2. directory: str | Path  output directory.
-			3. state: Value  shared multiprocessing state.
-			4. err_buffer: Array  shared error message buffer.
-			5. config: ExperimentConfig  the experiment configuration.
+			name: ``str``: experiment name.
+			directory: ``str | Path``: output directory.
+			state: ``Value``: shared multiprocessing state.
+			err_buffer: ``Array``: shared error message buffer.
+			config: ``ExperimentConfig``: the experiment configuration.
 		'''
 		self._state = state
 		self._err_buffer = err_buffer
@@ -336,7 +336,7 @@ class Experiment:
 		''' Return a JSON-serializable summary of this experiment.
 
 		Returns:
-			summary: dict  keys: name, state, err_buffer, config.
+			``dict``: keys: name, state, err_buffer, config.
 		'''
 		return {
 			'name': self.name,

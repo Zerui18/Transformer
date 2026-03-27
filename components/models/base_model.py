@@ -15,9 +15,9 @@ class BaseModel(pl.LightningModule, abc.ABC):
 	forward computation from the training loop. Metrics are stage-specific and
 	support both per-step and per-epoch frequencies.
 
-	Properties:
-		1. optimizer_hparams: dict[str, Any]  optimizer config with 'cls' key and kwargs.
-		2. metrics: dict[str, list[BaseMetric]]  stage name -> list of metrics for that stage.
+	Attributes:
+		optimizer_hparams: ``dict[str, Any]``: optimizer config with 'cls' key and kwargs.
+		metrics: ``dict[str, list[BaseMetric]]``: stage name -> list of metrics for that stage.
 
 	Subclasses must implement:
 		- produce(batch, requested) -> dict[str, Any]
@@ -30,8 +30,8 @@ class BaseModel(pl.LightningModule, abc.ABC):
 		''' Initialize the base model.
 
 		Args:
-			1. optimizer: dict[str, Any]  optimizer config; 'cls' names a torch.optim class, remaining keys are passed as kwargs. Defaults to AdamW with lr=5e-4.
-			2. metrics: dict[str, list[BaseMetric]] | None  stage-keyed metrics ('train', 'val', 'test'). None means no metrics.
+			optimizer: ``dict[str, Any]``: optimizer config; 'cls' names a torch.optim class, remaining keys are passed as kwargs. Defaults to AdamW with lr=5e-4.
+			metrics: ``dict[str, list[BaseMetric]] | None``: stage-keyed metrics ('train', 'val', 'test'). None means no metrics.
 		'''
 		super().__init__()
 		self.optimizer_hparams = {
@@ -59,10 +59,10 @@ class BaseModel(pl.LightningModule, abc.ABC):
 		''' Produce requested outputs from a batch.
 
 		Args:
-			1. batch: dict[str, Any]  input batch from the dataloader.
-			2. requested: set[str]  which outputs to compute.
+			batch: ``dict[str, Any]``: input batch from the dataloader.
+			requested: ``set[str]``: which outputs to compute.
 		Returns:
-			outputs: dict[str, Any]  at minimum {'loss': Tensor} when 'loss' is requested.
+			``dict[str, Any]``: at minimum {'loss': Tensor} when 'loss' is requested.
 
 		Must always produce 'loss' when requested. Other keys are model-specific
 		and consumed by metrics. Epoch metrics may request expensive keys (e.g.
@@ -75,7 +75,7 @@ class BaseModel(pl.LightningModule, abc.ABC):
 		''' Return the set of all output keys this model can produce.
 
 		Returns:
-			keys: set[str]  e.g. {'loss', 'y_pred', 'y_true', 'decoded_greedy', 'decoded_beam'}.
+			``set[str]``: e.g. {'loss', 'y_pred', 'y_true', 'decoded_greedy', 'decoded_beam'}.
 		'''
 		...
 
@@ -93,10 +93,10 @@ class BaseModel(pl.LightningModule, abc.ABC):
 		''' Collect the union of 'loss' and all metric requires for the given stage and frequency.
 
 		Args:
-			1. stage: str  one of 'train', 'val', 'test'.
-			2. frequency: str  'step' or 'epoch'.
+			stage: ``str``: one of 'train', 'val', 'test'.
+			frequency: ``str``: 'step' or 'epoch'.
 		Returns:
-			requested: set[str]  keys to request from produce().
+			``set[str]``: keys to request from produce().
 		'''
 		requested = {'loss'}
 		metrics = self._step_metrics(stage) if frequency == 'step' else self._epoch_metrics(stage)
@@ -110,10 +110,10 @@ class BaseModel(pl.LightningModule, abc.ABC):
 		''' Shared logic for training/validation/test steps. Only runs step-frequency metrics.
 
 		Args:
-			1. batch: dict[str, Any]  input batch from the dataloader.
-			2. stage: str  one of 'train', 'val', 'test'.
+			batch: ``dict[str, Any]``: input batch from the dataloader.
+			stage: ``str``: one of 'train', 'val', 'test'.
 		Returns:
-			loss: Tensor  [float32, ()] the scalar loss.
+			``Tensor[(), float32]``: the scalar loss.
 		'''
 		requested = self._gather_requested(stage, frequency='step')
 		outputs = self.produce(batch, requested)
@@ -133,7 +133,7 @@ class BaseModel(pl.LightningModule, abc.ABC):
 		''' Run epoch-frequency metrics by sampling from the val dataloader and calling produce.
 
 		Args:
-			1. stage: str  the stage to run epoch metrics for.
+			stage: ``str``: the stage to run epoch metrics for.
 		'''
 		epoch_metrics = self._epoch_metrics(stage)
 		if not epoch_metrics or not hasattr(self, '_val_dataloader'):
@@ -169,10 +169,10 @@ class BaseModel(pl.LightningModule, abc.ABC):
 		''' Training step: produce outputs, compute loss, update step metrics.
 
 		Args:
-			1. batch: dict[str, Any]  input batch.
-			2. batch_idx: int  index of this batch within the epoch.
+			batch: ``dict[str, Any]``: input batch.
+			batch_idx: ``int``: index of this batch within the epoch.
 		Returns:
-			loss: Tensor  [float32, ()] scalar loss for backprop.
+			``Tensor[(), float32]``: scalar loss for backprop.
 		'''
 		loss = self._step(batch, 'train')
 		self._train_losses.append(loss.item())
@@ -182,10 +182,10 @@ class BaseModel(pl.LightningModule, abc.ABC):
 		''' Validation step: produce outputs, compute loss, update step metrics.
 
 		Args:
-			1. batch: dict[str, Any]  input batch.
-			2. batch_idx: int  index of this batch within the epoch.
+			batch: ``dict[str, Any]``: input batch.
+			batch_idx: ``int``: index of this batch within the epoch.
 		Returns:
-			loss: Tensor  [float32, ()] scalar loss.
+			``Tensor[(), float32]``: scalar loss.
 		'''
 		loss = self._step(batch, 'val')
 		self._val_losses.append(loss.item())
@@ -195,10 +195,10 @@ class BaseModel(pl.LightningModule, abc.ABC):
 		''' Test step: produce outputs, compute loss, update step metrics.
 
 		Args:
-			1. batch: dict[str, Any]  input batch.
-			2. batch_idx: int  index of this batch within the epoch.
+			batch: ``dict[str, Any]``: input batch.
+			batch_idx: ``int``: index of this batch within the epoch.
 		Returns:
-			loss: Tensor  [float32, ()] scalar loss.
+			``Tensor[(), float32]``: scalar loss.
 		'''
 		return self._step(batch, 'test')
 

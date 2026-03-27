@@ -14,16 +14,16 @@ def get_angles(theta: float, seq_len: int, hidden_dim: int) -> Tensor:
 	'''Compute rotary embedding angle matrix for the given sequence length and hidden dimension.
 
 	Args:
-		1. theta: float  base frequency for the rotary embedding.
-		2. seq_len: int  maximum sequence length.
-		3. hidden_dim: int  per-head hidden dimension (must be even).
+		theta: ``float``: base frequency for the rotary embedding.
+		seq_len: ``int``: maximum sequence length.
+		hidden_dim: ``int``: per-head hidden dimension (must be even).
 	Returns:
-		angles: Tensor  [float32, (seq_len, hidden_dim // 2)] angle matrix.
+		``Tensor[(seq_len, hidden_dim // 2), float32]``: angle matrix.
 	'''
-	# angular speed
-	w = 1.0 / (theta ** (torch.arange(1, hidden_dim + 1, 2, dtype=torch.float)[:(hidden_dim // 2)] / hidden_dim))
-	# time
-	t = torch.arange(1, seq_len + 1, dtype=torch.float)
+	# angular speed: theta^(2i/d) for i = 0, 1, 2, ... (0-indexed per the RoPE paper)
+	w = 1.0 / (theta ** (torch.arange(0, hidden_dim, 2, dtype=torch.float)[:(hidden_dim // 2)] / hidden_dim))
+	# time: 0-indexed positions
+	t = torch.arange(0, seq_len, dtype=torch.float)
 	angles = torch.einsum('i, j -> i j', t, w)
 	return angles
 
@@ -32,9 +32,9 @@ def get_sin_cos(angles: Tensor) -> tuple[Tensor, Tensor]:
 	'''Compute sin and cos from an angle matrix.
 
 	Args:
-		1. angles: Tensor  [float32, (T, hidden_dim // 2)] angle matrix.
+		angles: ``Tensor[(T, hidden_dim // 2), float32]``: angle matrix.
 	Returns:
-		sin_cos: tuple[Tensor, Tensor]  (sin (T, hidden_dim // 2), cos (T, hidden_dim // 2)).
+		``tuple[Tensor, Tensor]``: (sin (T, hidden_dim // 2), cos (T, hidden_dim // 2)).
 	'''
 	return torch.sin(angles), torch.cos(angles)
 
@@ -43,11 +43,11 @@ def rotate_len2_subvectors(x: Tensor, sin: Tensor, cos: Tensor) -> Tensor:
 	'''Treat the last dimension as pairs of values and rotate each pair by the given angles.
 
 	Args:
-		1. x: Tensor  [float32, (..., T, Dh)] input tensor where Dh is even.
-		2. sin: Tensor  [float32, (T, Dh // 2)] sin values for rotation.
-		3. cos: Tensor  [float32, (T, Dh // 2)] cos values for rotation.
+		x: ``Tensor[(..., T, Dh), float32]``: input tensor where Dh is even.
+		sin: ``Tensor[(T, Dh // 2), float32]``: sin values for rotation.
+		cos: ``Tensor[(T, Dh // 2), float32]``: cos values for rotation.
 	Returns:
-		rotated: Tensor  [float32, (..., T, Dh)] rotated tensor, same shape as x.
+		``Tensor[(..., T, Dh), float32]``: rotated tensor, same shape as x.
 
 	Rotation formula for each pair (x1, x2):
 		x1' = x1 * cos - x2 * sin
@@ -66,9 +66,9 @@ def rotate_len2_subvectors(x: Tensor, sin: Tensor, cos: Tensor) -> Tensor:
 class RotaryEmbedding(nn.Module):
 	'''Rotary positional embedding (RoPE) from https://arxiv.org/abs/2104.09864.
 
-	Properties:
-		1. theta: float  base frequency parameter.
-		2. hidden_dim: int  per-head hidden dimension.
+	Attributes:
+		theta: ``float``: base frequency parameter.
+		hidden_dim: ``int``: per-head hidden dimension.
 
 	Applies rotary positional embeddings to query or key tensors in an attention module.
 	Sin/cos tables are cached at the class level for efficiency and computed up to a
@@ -83,11 +83,11 @@ class RotaryEmbedding(nn.Module):
 		'''Get cached sin/cos tables for the given theta and hidden_dim.
 
 		Args:
-			1. theta: float  base frequency parameter.
-			2. hidden_dim: int  per-head hidden dimension.
-			3. dtype: torch.dtype  desired output dtype.
+			theta: ``float``: base frequency parameter.
+			hidden_dim: ``int``: per-head hidden dimension.
+			dtype: ``torch.dtype``: desired output dtype.
 		Returns:
-			sin_cos: tuple[Tensor, Tensor]  (sin (8192, hidden_dim // 2), cos (8192, hidden_dim // 2)).
+			``tuple[Tensor, Tensor]``: (sin (8192, hidden_dim // 2), cos (8192, hidden_dim // 2)).
 		'''
 		MAX_SEQ_LEN = 8192  # hardcoded to avoid recomputing the sin/cos tables
 		angles = get_angles(theta, MAX_SEQ_LEN, hidden_dim)
@@ -98,8 +98,8 @@ class RotaryEmbedding(nn.Module):
 		'''Initialise RotaryEmbedding.
 
 		Args:
-			1. theta: float  base frequency parameter (typically 10000).
-			2. hidden_dim: int  per-head hidden dimension (must be even).
+			theta: ``float``: base frequency parameter (typically 10000).
+			hidden_dim: ``int``: per-head hidden dimension (must be even).
 		'''
 		super().__init__()
 		self.theta = theta
@@ -109,9 +109,9 @@ class RotaryEmbedding(nn.Module):
 		'''Apply rotary positional embedding to input tensor.
 
 		Args:
-			1. x: Tensor  [float32, (..., T, Dh)] query or key tensor to rotate.
+			x: ``Tensor[(..., T, Dh), float32]``: query or key tensor to rotate.
 		Returns:
-			rotated: Tensor  [float32, (..., T, Dh)] rotated tensor, same shape as x.
+			``Tensor[(..., T, Dh), float32]``: rotated tensor, same shape as x.
 		'''
 		# get sequence length
 		T = x.shape[-2]
@@ -129,12 +129,12 @@ class RotaryEmbedding(nn.Module):
 class RoFormerSelfAttention(MultiHeadSelfAttentionBase):
 	'''Multi-head self-attention with rotary positional embeddings (RoPE) applied to queries and keys.
 
-	Properties:
-		1. attn_dropout: nn.Dropout  dropout applied to attention weights.
-		2. resid_dropout: nn.Dropout  dropout applied after the output projection.
-		3. qkv_projection: nn.Linear  combined Q, K, V linear projection (D -> 3D).
-		4. c_proj: nn.Linear  output linear projection (D -> D).
-		5. rotary_embedding: RotaryEmbedding  rotary positional embedding applied to Q and K.
+	Attributes:
+		attn_dropout: ``nn.Dropout``: dropout applied to attention weights.
+		resid_dropout: ``nn.Dropout``: dropout applied after the output projection.
+		qkv_projection: ``nn.Linear``: combined Q, K, V linear projection (D -> 3D).
+		c_proj: ``nn.Linear``: output linear projection (D -> D).
+		rotary_embedding: ``RotaryEmbedding``: rotary positional embedding applied to Q and K.
 
 	RoPE encodes relative position information by rotating query and key vectors,
 	enabling length generalisation without explicit positional encodings.
@@ -144,8 +144,8 @@ class RoFormerSelfAttention(MultiHeadSelfAttentionBase):
 		'''Initialise RoFormerSelfAttention layers.
 
 		Args:
-			1. *args: passed to MultiHeadSelfAttentionBase.
-			2. **kwargs: passed to MultiHeadSelfAttentionBase.
+			*args: passed to MultiHeadSelfAttentionBase.
+			**kwargs: passed to MultiHeadSelfAttentionBase.
 		'''
 		super().__init__(*args, **kwargs)
 		self.attn_dropout = nn.Dropout(self.dropout)
@@ -160,10 +160,10 @@ class RoFormerSelfAttention(MultiHeadSelfAttentionBase):
 		'''Compute self-attention with rotary positional embeddings on Q and K.
 
 		Args:
-			1. x: Tensor  [float32, (B, T, D)] input embeddings.
-			2. tok_mask: Tensor  [bool, (B, T)] per-token mask; False is masked out, True is preserved.
+			x: ``Tensor[(B, T, D), float32]``: input embeddings.
+			tok_mask: ``Tensor[(B, T), bool]``: per-token mask; False is masked out, True is preserved.
 		Returns:
-			result: tuple[Tensor, Tensor]  (output (B, T, D), attention_weights (B, H, T, T)).
+			``tuple[Tensor, Tensor]``: (output (B, T, D), attention_weights (B, H, T, T)).
 		'''
 		B, T, D = x.shape
 		H = self.n_heads
@@ -197,13 +197,13 @@ class RoFormerSelfAttention(MultiHeadSelfAttentionBase):
 class RoFormerCrossAttention(MultiHeadCrossAttentionBase):
 	'''Multi-head cross-attention with rotary positional embeddings (RoPE) applied to queries and keys.
 
-	Properties:
-		1. attn_dropout: nn.Dropout  dropout applied to attention weights.
-		2. resid_dropout: nn.Dropout  dropout applied after the output projection.
-		3. q_projection: nn.Linear  query linear projection (D -> D).
-		4. kv_projection: nn.Linear  combined K, V linear projection (D -> 2D).
-		5. c_proj: nn.Linear  output linear projection (D -> D).
-		6. rotary_embedding: RotaryEmbedding  rotary positional embedding applied to Q and K.
+	Attributes:
+		attn_dropout: ``nn.Dropout``: dropout applied to attention weights.
+		resid_dropout: ``nn.Dropout``: dropout applied after the output projection.
+		q_projection: ``nn.Linear``: query linear projection (D -> D).
+		kv_projection: ``nn.Linear``: combined K, V linear projection (D -> 2D).
+		c_proj: ``nn.Linear``: output linear projection (D -> D).
+		rotary_embedding: ``RotaryEmbedding``: rotary positional embedding applied to Q and K.
 
 	RoPE encodes relative position information by rotating query and key vectors,
 	enabling length generalisation without explicit positional encodings.
@@ -213,8 +213,8 @@ class RoFormerCrossAttention(MultiHeadCrossAttentionBase):
 		'''Initialise RoFormerCrossAttention layers.
 
 		Args:
-			1. *args: passed to MultiHeadCrossAttentionBase.
-			2. **kwargs: passed to MultiHeadCrossAttentionBase.
+			*args: passed to MultiHeadCrossAttentionBase.
+			**kwargs: passed to MultiHeadCrossAttentionBase.
 		'''
 		super().__init__(*args, **kwargs)
 		self.attn_dropout = nn.Dropout(self.dropout)
@@ -230,12 +230,12 @@ class RoFormerCrossAttention(MultiHeadCrossAttentionBase):
 		'''Compute cross-attention with rotary positional embeddings on Q and K.
 
 		Args:
-			1. x_q: Tensor  [float32, (B, Tq, D)] query embeddings.
-			2. x_kv: Tensor  [float32, (B, Tk, D)] key/value embeddings.
-			3. q_tok_mask: Tensor  [bool, (B, Tq)] query token mask; False is masked out.
-			4. kv_tok_mask: Tensor  [bool, (B, Tk)] key/value token mask; False is masked out.
+			x_q: ``Tensor[(B, Tq, D), float32]``: query embeddings.
+			x_kv: ``Tensor[(B, Tk, D), float32]``: key/value embeddings.
+			q_tok_mask: ``Tensor[(B, Tq), bool]``: query token mask; False is masked out.
+			kv_tok_mask: ``Tensor[(B, Tk), bool]``: key/value token mask; False is masked out.
 		Returns:
-			result: tuple[Tensor, Tensor]  (output (B, Tq, D), attention_weights (B, H, Tq, Tk)).
+			``tuple[Tensor, Tensor]``: (output (B, Tq, D), attention_weights (B, H, Tq, Tk)).
 		'''
 		B, Tq, D = x_q.shape
 		_, Tk, _ = x_kv.shape

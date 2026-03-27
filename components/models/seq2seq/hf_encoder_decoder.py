@@ -15,10 +15,10 @@ class HFEncoderDecoder(BaseModel):
 
 	Uses BERT-based encoder and decoder configurations for sequence-to-sequence tasks.
 
-	Properties:
-		1. criterion: nn.CrossEntropyLoss  loss function.
-		2. model: EncoderDecoderModel  the HuggingFace model.
-		3. max_len: int  maximum sequence length.
+	Attributes:
+		criterion: ``nn.CrossEntropyLoss``: loss function.
+		model: ``EncoderDecoderModel``: the HuggingFace model.
+		max_len: ``int``: maximum sequence length.
 	'''
 
 	def __init__(self,
@@ -39,20 +39,20 @@ class HFEncoderDecoder(BaseModel):
 		''' Initialize the HFEncoderDecoder model.
 
 		Args:
-			1. max_len: int  maximum sequence length.
-			2. src_vocab_size: int  source vocabulary size.
-			3. tgt_vocab_size: int  target vocabulary size.
-			4. n_blocks: int  number of transformer layers.
-			5. n_heads: int  number of attention heads.
-			6. emb_dim: int  embedding/hidden dimension D.
-			7. dropout: float  dropout rate.
-			8. bias: bool  (unused, kept for interface compatibility).
-			9. weight_tying: bool  (unused, HF handles internally).
-			10. use_grad_ckpt: bool  (unused, HF handles internally).
-			11. pad_index: int  padding token index.
-			12. attention_type: str  (unused, HF uses its own attention).
-			13. optimizer: dict[str, Any]  optimizer config with 'cls' key and kwargs.
-			14. metrics: dict[str, list[BaseMetric]] | None  stage-keyed metrics.
+			max_len: ``int``: maximum sequence length.
+			src_vocab_size: ``int``: source vocabulary size.
+			tgt_vocab_size: ``int``: target vocabulary size.
+			n_blocks: ``int``: number of transformer layers.
+			n_heads: ``int``: number of attention heads.
+			emb_dim: ``int``: embedding/hidden dimension D.
+			dropout: ``float``: dropout rate.
+			bias: ``bool``: (unused, kept for interface compatibility).
+			weight_tying: ``bool``: (unused, HF handles internally).
+			use_grad_ckpt: ``bool``: (unused, HF handles internally).
+			pad_index: ``int``: padding token index.
+			attention_type: ``str``: (unused, HF uses its own attention).
+			optimizer: ``dict[str, Any]``: optimizer config with 'cls' key and kwargs.
+			metrics: ``dict[str, list[BaseMetric]] | None``: stage-keyed metrics.
 		'''
 		super().__init__(optimizer=optimizer, metrics=metrics)
 		self.save_hyperparameters(ignore=['metrics'])
@@ -83,12 +83,12 @@ class HFEncoderDecoder(BaseModel):
 		''' Forward pass through the HF EncoderDecoder model.
 
 		Args:
-			1. src: Tensor  [int64, (B, Ts)] source token ids.
-			2. tgt: Tensor  [int64, (B, Tt)] target token ids.
-			3. src_tok_mask: Tensor  [bool, (B, Ts)] source attention mask.
-			4. tgt_tok_mask: Tensor  [bool, (B, Tt)] target attention mask.
+			src: ``Tensor[(B, Ts), int64]``: source token ids.
+			tgt: ``Tensor[(B, Tt), int64]``: target token ids.
+			src_tok_mask: ``Tensor[(B, Ts), bool]``: source attention mask.
+			tgt_tok_mask: ``Tensor[(B, Tt), bool]``: target attention mask.
 		Returns:
-			logits: Tensor  [float32, (B, Tt, V)] vocabulary logits.
+			``Tensor[(B, Tt, V), float32]``: vocabulary logits.
 		'''
 		output = self.model(input_ids=src, decoder_input_ids=tgt,
 							attention_mask=src_tok_mask, decoder_attention_mask=tgt_tok_mask)
@@ -100,10 +100,10 @@ class HFEncoderDecoder(BaseModel):
 		''' Produce requested outputs from a batch.
 
 		Args:
-			1. batch: dict[str, Any]  keys: x_src, x_tgt, x_src_mask, x_tgt_mask, y_tgt.
-			2. requested: set[str]  subset of supports().
+			batch: ``dict[str, Any]``: keys: x_src, x_tgt, x_src_mask, x_tgt_mask, y_tgt.
+			requested: ``set[str]``: subset of supports().
 		Returns:
-			outputs: dict[str, Any]  requested outputs.
+			``dict[str, Any]``: requested outputs.
 		'''
 		y_pred = self(batch['x_src'], batch['x_tgt'], batch['x_src_mask'], batch['x_tgt_mask'])
 		results: dict[str, Any] = {}
@@ -120,7 +120,7 @@ class HFEncoderDecoder(BaseModel):
 		''' Return supported output keys.
 
 		Returns:
-			keys: set[str]  {'loss', 'y_pred', 'y_true'}.
+			``set[str]``: {'loss', 'y_pred', 'y_true'}.
 		'''
 		return {'loss', 'y_pred', 'y_true'}
 
@@ -132,13 +132,13 @@ class HFEncoderDecoder(BaseModel):
 		''' Translate a source sequence using greedy decoding.
 
 		Args:
-			1. src: Tensor  [int64, (Ts,)] source token ids (unbatched).
-			2. bos_idx: int  BOS token id.
-			3. eos_idx: int  EOS token id.
-			4. temperature: float  softmax temperature.
-			5. max_new_tokens: int  max tokens to generate.
+			src: ``Tensor[(Ts,), int64]``: source token ids (unbatched).
+			bos_idx: ``int``: BOS token id.
+			eos_idx: ``int``: EOS token id.
+			temperature: ``float``: softmax temperature.
+			max_new_tokens: ``int``: max tokens to generate.
 		Yields:
-			token: int  next generated token id.
+			``int``: next generated token id.
 		'''
 		self.eval()
 		src = src.to(self.device).unsqueeze(0)  # (1, Ts)

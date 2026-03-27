@@ -12,15 +12,15 @@ class BaseMetric(torchmetrics.Metric, abc.ABC):
 	Wraps torchmetrics.Metric with subsampling support, a required-keys
 	contract, and step/epoch frequency control.
 
-	Properties:
-		1. requires: set[str]  The keys this metric expects from model.produce().
-		2. name: str  Display name used as the log key (defaults to class name).
-		3. frequency: str  'step' for per-batch updates, 'epoch' for end-of-epoch updates.
-		4. num_samples: int  For epoch metrics, how many samples to evaluate on.
-		5. subsample_rate: float | None  Fraction of updates to keep (None = keep all).
-		6. is_differentiable: bool  Whether this metric supports gradient flow.
-		7. higher_is_better: bool  Whether higher values indicate better performance.
-		8. full_state_update: bool  Always False; updates must be decomposable.
+	Attributes:
+		requires: ``set[str]``: The keys this metric expects from model.produce().
+		name: ``str``: Display name used as the log key (defaults to class name).
+		frequency: ``str``: 'step' for per-batch updates, 'epoch' for end-of-epoch updates.
+		num_samples: ``int``: For epoch metrics, how many samples to evaluate on.
+		subsample_rate: ``float | None``: Fraction of updates to keep (None = keep all).
+		is_differentiable: ``bool``: Whether this metric supports gradient flow.
+		higher_is_better: ``bool``: Whether higher values indicate better performance.
+		full_state_update: ``bool``: Always False; updates must be decomposable.
 	'''
 
 	is_differentiable: bool = False
@@ -41,10 +41,10 @@ class BaseMetric(torchmetrics.Metric, abc.ABC):
 		''' Initialize the base metric.
 
 		Args:
-			1. name: str | None  display name for logging. Defaults to the class name.
-			2. frequency: str  'step' (update per batch) or 'epoch' (update once at epoch end).
-			3. num_samples: int  for epoch metrics, number of samples to evaluate on.
-			4. subsample_rate: float | None  [0 < x <= 1 or None] rate at which to keep updates. None means all updates are used.
+			name: ``str | None``: display name for logging. Defaults to the class name.
+			frequency: ``str``: 'step' (update per batch) or 'epoch' (update once at epoch end).
+			num_samples: ``int``: for epoch metrics, number of samples to evaluate on.
+			subsample_rate: ``float | None``: [0 < x <= 1 or None] rate at which to keep updates. None means all updates are used.
 		'''
 		super().__init__()
 		if frequency not in ('step', 'epoch'):
@@ -60,7 +60,7 @@ class BaseMetric(torchmetrics.Metric, abc.ABC):
 		''' Public update entry point; handles subsampling then delegates to _update().
 
 		Args:
-			1. **kwargs: dict[str, Any]  Keyword arguments matching self.requires keys.
+			**kwargs: ``dict[str, Any]``: Keyword arguments matching self.requires keys.
 		'''
 		if self.subsample_rate is not None and random.random() > self.subsample_rate:
 			return
@@ -71,7 +71,7 @@ class BaseMetric(torchmetrics.Metric, abc.ABC):
 		''' Core update logic. Subclasses implement this to accumulate state.
 
 		Args:
-			1. **kwargs: dict[str, Any]  Keyword arguments matching self.requires keys.
+			**kwargs: ``dict[str, Any]``: Keyword arguments matching self.requires keys.
 		'''
 		...
 
@@ -80,6 +80,6 @@ class BaseMetric(torchmetrics.Metric, abc.ABC):
 		''' Compute the metric value from accumulated state.
 
 		Returns:
-			result: Tensor  [float32, ()] scalar metric value.
+			``Tensor[(), float32]``: scalar metric value.
 		'''
 		...
