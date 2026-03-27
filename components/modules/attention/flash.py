@@ -1,52 +1,36 @@
+from torch.nn.attention import SDPBackend
+
 from components.modules.attention.stock import StockSelfAttention, StockCrossAttention
 
 
 class FlashSelfAttention(StockSelfAttention):
 	'''Multi-head self-attention using the FlashAttention SDPA backend.
 
-	Attributes:
-		(inherited from StockSelfAttention)
-
-	Thin wrapper around StockSelfAttention that overrides get_attention_args() to
-	enable the flash attention backend and disable the math backend. All other
-	behaviour, including the inability to output attention weights, is inherited.
+	Thin wrapper that overrides get_sdp_backends() to select the flash backend.
 	'''
 
-	def get_attention_args(self) -> dict[str, bool]:
-		'''Return SDPA backend flags with flash attention enabled.
+	def get_sdp_backends(self) -> list[SDPBackend]:
+		'''Return SDPA backends with flash attention enabled.
 
 		Returns:
-			``dict[str, bool]``: keys are enable_math, enable_flash, enable_mem_efficient.
+			``list[SDPBackend]``: flash attention backend.
 		'''
-		return {
-			'enable_math': False,
-			'enable_flash': True,
-			'enable_mem_efficient': False,
-		}
+		return [SDPBackend.FLASH_ATTENTION]
 
 
 class FlashCrossAttention(StockCrossAttention):
 	'''Multi-head cross-attention using the FlashAttention SDPA backend.
 
-	Attributes:
-		(inherited from StockCrossAttention)
-
-	Thin wrapper around StockCrossAttention that overrides get_attention_args() to
-	enable the flash attention backend and disable the math backend. All other
-	behaviour, including the inability to output attention weights, is inherited.
+	Thin wrapper that overrides get_sdp_backends() to select the flash backend.
 	'''
 
-	def get_attention_args(self) -> dict[str, bool]:
-		'''Return SDPA backend flags with flash attention enabled.
+	def get_sdp_backends(self) -> list[SDPBackend]:
+		'''Return SDPA backends with flash attention enabled.
 
 		Returns:
-			``dict[str, bool]``: keys are enable_math, enable_flash, enable_mem_efficient.
+			``list[SDPBackend]``: flash attention backend.
 		'''
-		return {
-			'enable_math': False,
-			'enable_flash': True,
-			'enable_mem_efficient': False,
-		}
+		return [SDPBackend.FLASH_ATTENTION]
 
 # Module-level aliases for lookup by transformer blocks
 SELF_ATTENTION_CLS = FlashSelfAttention

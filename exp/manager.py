@@ -8,7 +8,7 @@ from .experiment import Experiment, ExperimentState, ExperimentConfig
 
 
 def _run_experiment_child_process(name: str, directory: str, state: Value,
-								  err_buffer: Value, config: ExperimentConfig) -> None:
+								  err_buffer: Array, config: ExperimentConfig) -> None:
 	''' Entry point for the child process of an experiment.
 
 	Args:

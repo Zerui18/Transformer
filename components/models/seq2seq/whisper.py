@@ -96,7 +96,7 @@ class Whisper(BaseModel):
 
 	def _hook_attention_layers(self) -> None:
 		''' Register forward hooks on attention modules to capture weights. '''
-		def hook_fn(module, input, output):
+		def hook_fn(module, _input, output):
 			self.attention_weights[module.tag] = output[1]
 		for module in self.modules():
 			if hasattr(module, 'tag') and hasattr(module, 'output_attention') and module.output_attention:
@@ -161,13 +161,16 @@ class Whisper(BaseModel):
 		Returns:
 			``dict[str, Any]``: requested outputs.
 		'''
-		y_pred = self(batch['x_src'], batch['x_tgt'], batch['x_src_mask'], batch['x_tgt_mask'])
 		results: dict[str, Any] = {}
-		if 'loss' in requested:
-			B, T = batch['y_tgt'].shape
-			results['loss'] = self.criterion(y_pred.view(B * T, -1), batch['y_tgt'].reshape(B * T))
-		if 'y_pred' in requested:
-			results['y_pred'] = y_pred
+		# only run forward pass when needed
+		needs_forward = requested & {'loss', 'y_pred'}
+		if needs_forward:
+			y_pred = self(batch['x_src'], batch['x_tgt'], batch['x_src_mask'], batch['x_tgt_mask'])
+			if 'loss' in requested:
+				B, T = batch['y_tgt'].shape
+				results['loss'] = self.criterion(y_pred.view(B * T, -1), batch['y_tgt'].reshape(B * T))
+			if 'y_pred' in requested:
+				results['y_pred'] = y_pred
 		if 'y_true' in requested:
 			results['y_true'] = batch['y_tgt']
 		return results

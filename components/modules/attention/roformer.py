@@ -1,5 +1,4 @@
 import math
-import functools
 
 import torch
 from torch import nn, Tensor
@@ -28,7 +27,7 @@ def get_angles(theta: float, seq_len: int, hidden_dim: int) -> Tensor:
 	return angles
 
 
-def get_sin_cos(angles: Tensor) -> tuple[Tensor, Tensor]:
+def _compute_sin_cos(angles: Tensor) -> tuple[Tensor, Tensor]:
 	'''Compute sin and cos from an angle matrix.
 
 	Args:
@@ -70,40 +69,26 @@ class RotaryEmbedding(nn.Module):
 		theta: ``float``: base frequency parameter.
 		hidden_dim: ``int``: per-head hidden dimension.
 
-	Applies rotary positional embeddings to query or key tensors in an attention module.
-	Sin/cos tables are cached at the class level for efficiency and computed up to a
-	hardcoded maximum sequence length of 8192.
-
-	Validated against lucidrains/rotary-embedding-torch with max diff < 1e-6.
+	Precomputes sin/cos tables as registered buffers so they move with the model
+	to the correct device automatically.
 	'''
 
-	@staticmethod
-	@functools.cache
-	def get_sin_cos(theta: float, hidden_dim: int, dtype: torch.dtype) -> tuple[Tensor, Tensor]:
-		'''Get cached sin/cos tables for the given theta and hidden_dim.
-
-		Args:
-			theta: ``float``: base frequency parameter.
-			hidden_dim: ``int``: per-head hidden dimension.
-			dtype: ``torch.dtype``: desired output dtype.
-		Returns:
-			``tuple[Tensor, Tensor]``: (sin (8192, hidden_dim // 2), cos (8192, hidden_dim // 2)).
-		'''
-		MAX_SEQ_LEN = 8192  # hardcoded to avoid recomputing the sin/cos tables
-		angles = get_angles(theta, MAX_SEQ_LEN, hidden_dim)
-		sin, cos = get_sin_cos(angles)
-		return sin.type(dtype), cos.type(dtype)
-
-	def __init__(self, theta: float, hidden_dim: int) -> None:
+	def __init__(self, theta: float, hidden_dim: int, max_seq_len: int = 8192) -> None:
 		'''Initialise RotaryEmbedding.
 
 		Args:
 			theta: ``float``: base frequency parameter (typically 10000).
 			hidden_dim: ``int``: per-head hidden dimension (must be even).
+			max_seq_len: ``int``: maximum sequence length for precomputed tables.
 		'''
 		super().__init__()
 		self.theta = theta
 		self.hidden_dim = hidden_dim
+		# precompute sin/cos tables and register as non-learnable buffers
+		angles = get_angles(theta, max_seq_len, hidden_dim)
+		sin, cos = _compute_sin_cos(angles)
+		self.register_buffer('sin', sin, persistent=False)
+		self.register_buffer('cos', cos, persistent=False)
 
 	def forward(self, x: Tensor) -> Tensor:
 		'''Apply rotary positional embedding to input tensor.
@@ -113,15 +98,9 @@ class RotaryEmbedding(nn.Module):
 		Returns:
 			``Tensor[(..., T, Dh), float32]``: rotated tensor, same shape as x.
 		'''
-		# get sequence length
 		T = x.shape[-2]
-		# get sin/cos tables
-		sin, cos = RotaryEmbedding.get_sin_cos(self.theta, self.hidden_dim, x.dtype)
-		# trim to the correct sequence length and move to device
-		sin = sin[:T, :].to(x.device)
-		cos = cos[:T, :].to(x.device)
-		# rotate x
-		return rotate_len2_subvectors(x, sin, cos)
+		# buffers are already on the correct device
+		return rotate_len2_subvectors(x, self.sin[:T].to(x.dtype), self.cos[:T].to(x.dtype))
 
 
 ### Attention Modules ###
@@ -140,21 +119,20 @@ class RoFormerSelfAttention(MultiHeadSelfAttentionBase):
 	enabling length generalisation without explicit positional encodings.
 	'''
 
-	def __init__(self, *args, **kwargs) -> None:
+	def __init__(self, *args, theta: float = 10000.0, **kwargs) -> None:
 		'''Initialise RoFormerSelfAttention layers.
 
 		Args:
 			*args: passed to MultiHeadSelfAttentionBase.
+			theta: ``float``: RoPE base frequency parameter.
 			**kwargs: passed to MultiHeadSelfAttentionBase.
 		'''
 		super().__init__(*args, **kwargs)
 		self.attn_dropout = nn.Dropout(self.dropout)
 		self.resid_dropout = nn.Dropout(self.dropout)
-		# combine q, k, v projections for efficiency
 		self.qkv_projection = nn.Linear(self.emb_dim, 3 * self.emb_dim, bias=self.bias)
-		# output projection
 		self.c_proj = nn.Linear(self.emb_dim, self.emb_dim, bias=self.bias)
-		self.rotary_embedding = RotaryEmbedding(theta=10000, hidden_dim=self.emb_dim // self.n_heads)
+		self.rotary_embedding = RotaryEmbedding(theta=theta, hidden_dim=self.emb_dim // self.n_heads)
 
 	def _forward(self, x: Tensor, tok_mask: Tensor) -> tuple[Tensor, Tensor]:
 		'''Compute self-attention with rotary positional embeddings on Q and K.
@@ -209,22 +187,21 @@ class RoFormerCrossAttention(MultiHeadCrossAttentionBase):
 	enabling length generalisation without explicit positional encodings.
 	'''
 
-	def __init__(self, *args, **kwargs) -> None:
+	def __init__(self, *args, theta: float = 10000.0, **kwargs) -> None:
 		'''Initialise RoFormerCrossAttention layers.
 
 		Args:
 			*args: passed to MultiHeadCrossAttentionBase.
+			theta: ``float``: RoPE base frequency parameter.
 			**kwargs: passed to MultiHeadCrossAttentionBase.
 		'''
 		super().__init__(*args, **kwargs)
 		self.attn_dropout = nn.Dropout(self.dropout)
 		self.resid_dropout = nn.Dropout(self.dropout)
 		self.q_projection = nn.Linear(self.emb_dim, self.emb_dim, bias=self.bias)
-		# combine k, v projections for efficiency
 		self.kv_projection = nn.Linear(self.emb_dim, 2 * self.emb_dim, bias=self.bias)
-		# output projection
 		self.c_proj = nn.Linear(self.emb_dim, self.emb_dim, bias=self.bias)
-		self.rotary_embedding = RotaryEmbedding(theta=10000, hidden_dim=self.emb_dim // self.n_heads)
+		self.rotary_embedding = RotaryEmbedding(theta=theta, hidden_dim=self.emb_dim // self.n_heads)
 
 	def _forward(self, x_q: Tensor, x_kv: Tensor, q_tok_mask: Tensor, kv_tok_mask: Tensor) -> tuple[Tensor, Tensor]:
 		'''Compute cross-attention with rotary positional embeddings on Q and K.

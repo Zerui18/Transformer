@@ -1,5 +1,6 @@
 import torch
 from torch import nn, Tensor
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from einops import rearrange
 
 from components.modules.attention.base import MultiHeadSelfAttentionBase, MultiHeadCrossAttentionBase
@@ -34,17 +35,13 @@ class StockSelfAttention(MultiHeadSelfAttentionBase):
 		self.c_proj = nn.Linear(self.emb_dim, self.emb_dim, bias=self.bias)
 		self.resid_dropout = nn.Dropout(self.dropout)
 
-	def get_attention_args(self) -> dict[str, bool]:
-		'''Return SDPA backend selection flags.
+	def get_sdp_backends(self) -> list[SDPBackend]:
+		'''Return the list of SDPA backends to enable.
 
 		Returns:
-			``dict[str, bool]``: keys are enable_math, enable_flash, enable_mem_efficient.
+			``list[SDPBackend]``: backends to use for scaled_dot_product_attention.
 		'''
-		return {
-			'enable_math': True,
-			'enable_flash': False,
-			'enable_mem_efficient': False,
-		}
+		return [SDPBackend.MATH]
 
 	def _forward(self, x: Tensor, tok_mask: Tensor) -> tuple[Tensor, None]:
 		'''Compute self-attention via PyTorch scaled_dot_product_attention.
@@ -71,7 +68,7 @@ class StockSelfAttention(MultiHeadSelfAttentionBase):
 		attn_mask.masked_fill_(~mask, float('-inf'))
 		attn_mask = attn_mask.unsqueeze(1)  # (B, 1, T, T) — broadcast over heads
 		# SDPA
-		with torch.backends.cuda.sdp_kernel(**self.get_attention_args()):
+		with sdpa_kernel(self.get_sdp_backends()):
 			y = nn.functional.scaled_dot_product_attention(
 				q, k, v, attn_mask=attn_mask, dropout_p=self.p_dropout if self.training else 0.0)
 		y = rearrange(y, 'B H T Dh -> B T (H Dh)')  # (B, T, D)
@@ -110,17 +107,13 @@ class StockCrossAttention(MultiHeadCrossAttentionBase):
 		self.c_proj = nn.Linear(self.emb_dim, self.emb_dim, bias=self.bias)
 		self.resid_dropout = nn.Dropout(self.dropout)
 
-	def get_attention_args(self) -> dict[str, bool]:
-		'''Return SDPA backend selection flags.
+	def get_sdp_backends(self) -> list[SDPBackend]:
+		'''Return the list of SDPA backends to enable.
 
 		Returns:
-			``dict[str, bool]``: keys are enable_math, enable_flash, enable_mem_efficient.
+			``list[SDPBackend]``: backends to use for scaled_dot_product_attention.
 		'''
-		return {
-			'enable_math': True,
-			'enable_flash': False,
-			'enable_mem_efficient': False,
-		}
+		return [SDPBackend.MATH]
 
 	def _forward(self, x_q: Tensor, x_kv: Tensor, q_tok_mask: Tensor, kv_tok_mask: Tensor) -> tuple[Tensor, None]:
 		'''Compute cross-attention via PyTorch scaled_dot_product_attention.
@@ -147,7 +140,7 @@ class StockCrossAttention(MultiHeadCrossAttentionBase):
 		attn_mask.masked_fill_(~mask, float('-inf'))
 		attn_mask = attn_mask.unsqueeze(1)  # (B, 1, Tq, Tk)
 		# SDPA
-		with torch.backends.cuda.sdp_kernel(**self.get_attention_args()):
+		with sdpa_kernel(self.get_sdp_backends()):
 			y = nn.functional.scaled_dot_product_attention(
 				q, k, v, attn_mask=attn_mask, dropout_p=self.p_dropout if self.training else 0.0)
 		y = rearrange(y, 'B H Tq Dh -> B Tq (H Dh)')  # (B, Tq, D)

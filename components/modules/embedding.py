@@ -14,10 +14,11 @@ class PositionalEmbedding(nn.Module):
 		''' Initialize the positional embedding table.
 
 		Args:
-			emb_dim: ``int``: embedding dimension D.
+			emb_dim: ``int``: embedding dimension D (must be even).
 			max_len: ``int``: maximum sequence length supported.
 		'''
 		super().__init__()
+		assert emb_dim % 2 == 0, f'emb_dim must be even, got {emb_dim}'
 		encoding = torch.zeros(max_len + 2, emb_dim, requires_grad=False)  # (max_len + 2, D)
 		pos = torch.arange(0.0, max_len + 2, dtype=torch.float).unsqueeze(dim=1)  # (max_len + 2, 1)
 		_2i = torch.arange(0, emb_dim, step=2).float()  # (D/2,)
