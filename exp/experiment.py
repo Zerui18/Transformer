@@ -1,139 +1,207 @@
-import yaml
+import json
 import shutil
+import yaml
 from pathlib import Path
+
 from torch.utils.data import DataLoader
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import Callback, ModelCheckpoint
 from multiprocessing import Value, Array
-import json
+
 
 class ExperimentState:
-	''' An enum for the state of an experiment. '''
-	QUEUING = 0 # waiting to be run
-	RUNNING = 1 # currently running
-	COMPLETED = 2 # completed successfully
-	STOPPED = 3 # stopped by user
-	FAILED = 4 # failed due to an error
+	''' Enum-like constants for experiment lifecycle states.
+
+	Properties:
+		1. QUEUING: int  waiting in queue to run.
+		2. RUNNING: int  currently executing.
+		3. COMPLETED: int  finished successfully.
+		4. STOPPED: int  stopped by the user.
+		5. FAILED: int  terminated due to an error.
+	'''
+	QUEUING = 0
+	RUNNING = 1
+	COMPLETED = 2
+	STOPPED = 3
+	FAILED = 4
+
 
 class ExperimentStopper(Callback):
-	''' A callback for stopping the trainer when the experiment is stopped. '''
+	''' Lightning callback that stops the trainer when the experiment state transitions to STOPPED.
 
-	state: Value
-	''' The state of the experiment, stored in a multiprocessing.Value object. '''
+	Properties:
+		1. state: Value  shared multiprocessing.Value holding the ExperimentState int.
+	'''
 
 	def __init__(self, state: Value):
+		''' Initialize the stopper callback.
+
+		Args:
+			1. state: Value  shared experiment state.
+		'''
 		self.state = state
 
-	def check_should_stop(self):
+	def check_should_stop(self) -> bool:
+		''' Return True if the experiment has been marked as STOPPED.
+
+		Returns:
+			should_stop: bool  whether the trainer should stop.
+		'''
 		if self.state is None:
 			return False
 		return self.state.value == ExperimentState.STOPPED
 
-	def on_train_batch_end(self, trainer: Trainer, *args):
+	def on_train_batch_end(self, trainer: Trainer, *args) -> None:
+		''' Check for stop signal after each training batch. '''
 		if self.check_should_stop():
 			trainer.should_stop = True
 
-	def on_validation_batch_end(self, trainer: Trainer, *args):
+	def on_validation_batch_end(self, trainer: Trainer, *args) -> None:
+		''' Check for stop signal after each validation batch. '''
 		if self.check_should_stop():
 			trainer.should_stop = True
+
 
 class ExperimentConfig:
-	''' A class for storing the config for an experiment. '''
+	''' Stores the three config dicts (model, dataset, training) for an experiment.
 
-	def __init__(self, dls_config: dict, model_config: dict, trainer_config: dict, resume_from_directory: str = None, resume_from_checkpoint: str = None):
-		''' Creates an ExperimentConfig object.
+	Properties:
+		1. model_config: dict  model class, hparams, tokenizer, and metrics configuration.
+		2. dataset_config: dict  dataset class, init args, and dataloader args per split.
+		3. training_config: dict  Lightning Trainer keyword arguments.
+		4. resume_from_directory: str | None  experiment directory to resume from.
+		5. resume_from_checkpoint: str | None  checkpoint path to resume from.
+	'''
+
+	def __init__(self, dataset_config: dict, model_config: dict, training_config: dict,
+				 resume_from_directory: str | None = None,
+				 resume_from_checkpoint: str | None = None):
+		''' Create an ExperimentConfig.
 
 		Args:
-			`dls_config (dict)`: The dataloaders config.
-			`model_config (dict)`: The model config.
-			`trainer_config (dict)`: The trainer config.
-			`resume_from_directory (str, optional)`: The path to the experiment directory to resume from. If None, a new experiment directory will be created. Defaults to None.
-			`resume_from_checkpoint (str, optional)`: The name of the checkpoint to resume from. If None, no checkpoint will be loaded. Defaults to None.
+			1. dataset_config: dict  dataset configuration per split.
+			2. model_config: dict  model class, hparams, tokenizer, metrics.
+			3. training_config: dict  Lightning Trainer kwargs.
+			4. resume_from_directory: str | None  path to resume experiment from.
+			5. resume_from_checkpoint: str | None  checkpoint name to resume from.
 		'''
-		self.dls_config = dls_config
+		self.dataset_config = dataset_config
 		self.model_config = model_config
-		self.trainer_config = trainer_config
+		self.training_config = training_config
 		self.resume_from_directory = resume_from_directory
 		self.resume_from_checkpoint = resume_from_checkpoint
 
+	# backward-compat aliases for old field names
+	@property
+	def dls_config(self) -> dict:
+		''' Backward-compatible alias for dataset_config. '''
+		return self.dataset_config
+
+	@property
+	def trainer_config(self) -> dict:
+		''' Backward-compatible alias for training_config. '''
+		return self.training_config
+
 	@staticmethod
-	def from_config_files(model_config_file: str, dls_config_file: str, trainer_config_file: str, resume_from_directory: str = None, resume_from_checkpoint: str = None) -> 'ExperimentConfig':
-		''' Returns an ExperimentConfig object from the given config files.
-		
+	def from_config_files(model_config_file: str, dataset_config_file: str,
+						  training_config_file: str,
+						  resume_from_directory: str | None = None,
+						  resume_from_checkpoint: str | None = None) -> 'ExperimentConfig':
+		''' Load an ExperimentConfig from three YAML files.
+
 		Args:
-			`model_config_file (str)`: The path to the model config file.
-			`dls_config_file (str)`: The path to the dataloaders config file.
-			`trainer_config_file (str)`: The path to the trainer config file.
-			`resume_from_directory (str, optional)`: The path to the experiment directory to resume from. If None, a new experiment directory will be created. Defaults to None.
-			`resume_from_checkpoint (str, optional)`: The name of the checkpoint to resume from. If None, no checkpoint will be loaded. Defaults to None.
+			1. model_config_file: str  path to model.yaml.
+			2. dataset_config_file: str  path to dataset.yaml.
+			3. training_config_file: str  path to training.yaml.
+			4. resume_from_directory: str | None  experiment directory to resume from.
+			5. resume_from_checkpoint: str | None  checkpoint name to resume from.
+		Returns:
+			config: ExperimentConfig  the loaded config.
 		'''
 		with open(model_config_file, 'r') as f:
 			model_config = yaml.safe_load(f)
-		with open(dls_config_file, 'r') as f:
-			dls_config = yaml.safe_load(f)
-		with open(trainer_config_file, 'r') as f:
-			trainer_config = yaml.safe_load(f)
-		config = ExperimentConfig(dls_config, model_config, trainer_config, resume_from_directory, resume_from_checkpoint)
-		return config
+		with open(dataset_config_file, 'r') as f:
+			dataset_config = yaml.safe_load(f)
+		with open(training_config_file, 'r') as f:
+			training_config = yaml.safe_load(f)
+		return ExperimentConfig(dataset_config, model_config, training_config,
+								resume_from_directory, resume_from_checkpoint)
 
 	@staticmethod
-	def resuming_from_directory(directory: str, checkpoint_name: str = None) -> 'ExperimentConfig':
-		''' Returns an ExperimentConfig object for resuming an experiment from a directory.
-		
+	def resuming_from_directory(directory: str,
+								checkpoint_name: str | None = None) -> 'ExperimentConfig':
+		''' Load an ExperimentConfig for resuming from a saved experiment directory.
+
 		Args:
-			`directory (str)`: The directory to resume from.
-			`checkpoint_name (str, optional)`: The name of the checkpoint to resume from. If None, no checkpoint will be loaded. Defaults to None.
+			1. directory: str  path to the experiment directory.
+			2. checkpoint_name: str | None  name of the checkpoint file to resume from.
+		Returns:
+			config: ExperimentConfig  the loaded config.
 		'''
-		directory = Path(directory)
-		model_config_file = directory / 'model.yaml'
-		dls_config_file = directory / 'dls.yaml'
-		trainer_config_file = directory / 'trainer.yaml'
-		if checkpoint_name is None:
-			resume_from_checkpoint = None
-		else:
-			resume_from_checkpoint = directory / 'checkpoints' / checkpoint_name
-		return ExperimentConfig.from_config_files(model_config_file, dls_config_file, trainer_config_file, directory, resume_from_checkpoint)
+		d = Path(directory)
+		# try new filenames first, fall back to old
+		model_file = d / 'model.yaml'
+		dataset_file = d / 'dataset.yaml' if (d / 'dataset.yaml').exists() else d / 'dls.yaml'
+		training_file = d / 'training.yaml' if (d / 'training.yaml').exists() else d / 'trainer.yaml'
+		ckpt = None if checkpoint_name is None else str(d / 'checkpoints' / checkpoint_name)
+		return ExperimentConfig.from_config_files(
+			str(model_file), str(dataset_file), str(training_file), str(d), ckpt)
 
 
 class Experiment:
-	''' A class for running an experiment. '''
+	''' Manages the full lifecycle of a single experiment: resource init, training, and cleanup.
 
-	### JIT INIT RESOURCES ###
-	dls: dict[str, DataLoader] = None
-	model: LightningModule = None
-	trainer: Trainer = None
+	Experiments are designed to run in a subprocess. Resources (dataloaders, model, trainer)
+	are JIT-initialized in the subprocess via run(). State is shared with the parent
+	process through multiprocessing.Value/Array.
 
-	### SHARED ###
+	Properties:
+		1. name: str  human-readable experiment name.
+		2. directory: Path  experiment output directory.
+		3. config: ExperimentConfig  the experiment configuration.
+		4. dls: dict[str, DataLoader] | None  JIT-initialized dataloaders.
+		5. model: LightningModule | None  JIT-initialized model.
+		6. trainer: Trainer | None  JIT-initialized Lightning Trainer.
+	'''
+
+	dls: dict[str, DataLoader] | None = None
+	model: LightningModule | None = None
+	trainer: Trainer | None = None
+
 	_state: Value
 	_err_buffer: Array
 
 	@property
 	def state(self) -> int:
+		''' The current ExperimentState value (shared across processes). '''
 		return self._state.value
+
 	@state.setter
-	def state(self, value: int):
+	def state(self, value: int) -> None:
 		self._state.value = value
 
 	@property
 	def err_buffer(self) -> str:
+		''' The error message buffer (shared across processes). '''
 		return self._err_buffer.value.decode('utf-8')
+
 	@err_buffer.setter
-	def err_buffer(self, value: str):
-		bytes = value.encode('utf-8')
-		min_len = min(len(bytes), len(self._err_buffer))
-		self._err_buffer[:min_len] = bytes[:min_len]
+	def err_buffer(self, value: str) -> None:
+		encoded = value.encode('utf-8')
+		n = min(len(encoded), len(self._err_buffer))
+		self._err_buffer[:n] = encoded[:n]
 
-	### PRIVATE ###
-	_experiment_stopper: ExperimentStopper
-
-	def __init__(self, name: str, directory: str, state: Value, err_buffer: Value, config: ExperimentConfig):
-		''' Creates an Experiment object.
+	def __init__(self, name: str, directory: str | Path, state: Value,
+				 err_buffer: Array, config: ExperimentConfig):
+		''' Create an Experiment.
 
 		Args:
-			`name (str)`: The name of the experiment.
-			`state (Value)`: The state of the experiment, stored in a multiprocessing.Value object.
-			`config (ExperimentConfig)`: The config for the experiment.
+			1. name: str  experiment name.
+			2. directory: str | Path  output directory.
+			3. state: Value  shared multiprocessing state.
+			4. err_buffer: Array  shared error message buffer.
+			5. config: ExperimentConfig  the experiment configuration.
 		'''
 		self._state = state
 		self._err_buffer = err_buffer
@@ -141,145 +209,145 @@ class Experiment:
 		self.directory = Path(directory)
 		self.config = config
 
-	def run(self):
-		''' Run the experiment. '''
-		self.err_buffer = '' # clear error buffer
+	def run(self) -> None:
+		''' Execute the experiment: init resources, fit the model, update state on completion or failure. '''
+		self.err_buffer = ''
 		try:
 			self._init_resources()
 			self.state = ExperimentState.RUNNING
+			# attach val dataloader for model-level BLEU reporting
 			self.model._val_dataloader = self.dls['valid']
-			self.trainer.fit(self.model, self.dls['train'], self.dls['valid'], ckpt_path=self.config.resume_from_checkpoint)
-			# only set completed if not stopped
+			self.trainer.fit(self.model, self.dls['train'], self.dls['valid'],
+							 ckpt_path=self.config.resume_from_checkpoint)
 			if self.state == ExperimentState.RUNNING:
 				self.state = ExperimentState.COMPLETED
 		except Exception as e:
-			# capture any runtime exception & save to error buffer
 			self.state = ExperimentState.FAILED
 			self.err_buffer = str(e)
-			raise e
+			raise
 
-	def _init_resources(self):
-		''' Initialize all resources needed for the experiment.
-
-		Note: This should only be called in the subprocess.
-		'''
-		# ensure experiment folder exists
+	def _init_resources(self) -> None:
+		''' Initialize experiment folder, dataloaders, model, and trainer. '''
 		if self.config.resume_from_directory is None:
 			self._init_exp_folder()
 		else:
-			self.directory = self.config.resume_from_directory
-		# if self._state is not None:
-		#     # we're in child process
-		#     # redirect stdout & stderr to log file in experiment folder
-		#     import sys
-		#     sys.stdout = open(self.directory / 'stdout.log', 'w')
-		#     sys.stderr = open(self.directory / 'stderr.log', 'w')
-		# continue initializing resources
+			self.directory = Path(self.config.resume_from_directory)
 		self._init_dls()
 		self._init_model()
 		self._init_trainer()
 
-	def _init_exp_folder(self):
-		''' Initialize the experiment folder. '''
+	def _init_exp_folder(self) -> None:
+		''' Create the experiment directory and save config files. '''
 		self.directory.mkdir(parents=True, exist_ok=True)
-		# save config files
 		with open(self.directory / 'model.yaml', 'w') as f:
 			yaml.safe_dump(self.config.model_config, f)
-		with open(self.directory / 'dls.yaml', 'w') as f:
-			yaml.safe_dump(self.config.dls_config, f)
-		with open(self.directory / 'trainer.yaml', 'w') as f:
-			yaml.safe_dump(self.config.trainer_config, f)
-		# also create checkpoints folder
+		with open(self.directory / 'dataset.yaml', 'w') as f:
+			yaml.safe_dump(self.config.dataset_config, f)
+		with open(self.directory / 'training.yaml', 'w') as f:
+			yaml.safe_dump(self.config.training_config, f)
 		(self.directory / 'checkpoints').mkdir(parents=True, exist_ok=True)
 
-	def _init_dls(self):
-		dls_config = self.config.dls_config
+	def _init_dls(self) -> None:
+		''' Initialize dataloaders from the dataset config using the components registry. '''
+		import components
+		ds_config = self.config.dataset_config
 		dls = {}
 		for name in ['train', 'valid']:
-			config = dls_config[name]
-			class_name = config['ds_class']
-			init_args = config['ds_init_args']
-			import datasets
-			config_cls = getattr(datasets, class_name + 'Config')
-			cls = getattr(datasets, class_name)
-			ds: datasets.BaseDataset = cls(config_cls(**init_args)) # generic reference to dataset
-			dls[name] = DataLoader(ds, collate_fn=ds.get_collate_function(), num_workers=8, pin_memory=True, drop_last=True, **config['dl_init_args'])
+			split = ds_config[name]
+			class_name = split.get('cls') or split.get('ds_class')
+			dl_args = split.get('dataloader', split.get('dl_init_args', {}))
+			# dataset kwargs: flat keys excluding reserved ones
+			reserved = {'cls', 'ds_class', 'ds_init_args', 'dl_init_args', 'dataloader'}
+			ds_args = split.get('ds_init_args', {})
+			ds_args.update({k: v for k, v in split.items() if k not in reserved})
+			cls = components.datasets_registry[class_name]
+			ds = cls(**ds_args)
+			dls[name] = DataLoader(ds, collate_fn=ds.get_collate_function(),
+								   num_workers=8, pin_memory=True, drop_last=True,
+								   **dl_args)
 		self.dls = dls
 
-	def _init_model(self):
-		model_config = self.config.model_config
-		# init tokenizer
-		import toknizers
-		tokenizer_config = model_config['tokenizer']
-		tokenizer_class_name = tokenizer_config['class']
-		tokenizer_init_args = tokenizer_config['init_args']
-		tokenizer_cls = getattr(toknizers, tokenizer_class_name)
-		tokenizer = tokenizer_cls(**tokenizer_init_args)
-		# init model
-		class_name = model_config['class']
-		init_args = model_config['init_args']
-		import models
-		config_cls = getattr(models, class_name + 'Config')
-		cls = getattr(models, class_name)
-		self.model = cls(config_cls(**init_args), tokenizer=tokenizer)
-		# compile model
-		# TBD: compile on demand
-		#import torch
-		#self.model = torch.compile(self.model)
+	def _init_model(self) -> None:
+		''' Initialize the model, tokenizer, and metrics from the model config using registries. '''
+		import components
+		mc = self.config.model_config
+		# tokenizer: flat dict with 'cls' key, remaining keys are constructor kwargs
+		tokenizer = None
+		if 'tokenizer' in mc:
+			tc = mc['tokenizer']
+			tok_cls_name = tc.get('cls')
+			tok_args = {k: v for k, v in tc.items() if k != 'cls'}
+			tokenizer = components.tokenizers_registry[tok_cls_name](**tok_args)
+		# metrics: stage name -> list of metric instances
+		metrics: dict[str, list] = {}
+		if 'metrics' in mc:
+			for stage, stage_metrics in mc['metrics'].items():
+				metrics[stage] = []
+				for mcfg in stage_metrics:
+					m_cls_name = mcfg['cls']
+					m_args = {k: v for k, v in mcfg.items() if k != 'cls'}
+					# inject tokenizer into metric if configured as dict
+					if 'tokenizer' in m_args and isinstance(m_args['tokenizer'], dict):
+						t = m_args['tokenizer']
+						t_cls = components.tokenizers_registry[t.get('cls') or t.get('class')]
+						m_args['tokenizer'] = t_cls(**{k: v for k, v in t.items() if k not in ('cls', 'class')})
+					metrics[stage].append(components.metrics_registry[m_cls_name](**m_args))
+		# optimizer: nested dict with 'cls' key
+		optimizer = dict(mc.get('optimizer', {}))
+		# model kwargs: everything except reserved keys
+		reserved = {'cls', 'tokenizer', 'metrics', 'optimizer', 'checkpoints'}
+		init_args = {k: v for k, v in mc.items() if k not in reserved}
+		# model
+		model_cls_name = mc['cls']
+		self.model = components.models_registry[model_cls_name](
+			**init_args, tokenizer=tokenizer, optimizer=optimizer, metrics=metrics)
 
-	def _init_trainer(self):
-		trainer_config = self.config.trainer_config
-		# init callbacks
+	def _init_trainer(self) -> None:
+		''' Initialize the Lightning Trainer with callbacks, logger, and config-driven checkpoints. '''
 		self._experiment_stopper = ExperimentStopper(self._state)
-		val_loss_ckpt = ModelCheckpoint(
-			self.directory / 'checkpoints/',
-			filename='model-{epoch}-{step}-{val_loss:.2f}',
-			mode='min',
-			monitor='val_loss',
-			every_n_epochs=1,
-			save_top_k=2,
-			save_last=True)
-		greedy_bleu_ckpt = ModelCheckpoint(
-			self.directory / 'checkpoints/',
-			filename='model-{epoch}-{step}-{bleu_greedy:.2f}',
-			mode='max',
-			monitor='bleu_greedy',
-			every_n_epochs=1,
-			save_top_k=2,
-			save_last=True,
-			save_on_train_epoch_end=True)
-		bs_bleu_ckpt = ModelCheckpoint(
-			self.directory / 'checkpoints/',
-			filename='model-{epoch}-{step}-{bleu_bs16:.2f}',
-			mode='max',
-			monitor='bleu_bs16',
-			every_n_epochs=1,
-			save_top_k=2,
-			save_last=True,
-			save_on_train_epoch_end=True)
-		# init logger
+		# build checkpoint callbacks from model config (or default to val_loss)
+		checkpoint_configs = self.config.model_config.get('checkpoints', [
+			{'monitor': 'val_loss', 'mode': 'min'},
+		])
+		checkpoint_callbacks = []
+		for ckpt_cfg in checkpoint_configs:
+			monitor = ckpt_cfg['monitor']
+			mode = ckpt_cfg.get('mode', 'min')
+			save_top_k = ckpt_cfg.get('save_top_k', 2)
+			filename = ckpt_cfg.get('filename', f'model-{{epoch}}-{{step}}-{{{monitor}:.2f}}')
+			checkpoint_callbacks.append(ModelCheckpoint(
+				self.directory / 'checkpoints/',
+				filename=filename,
+				mode=mode, monitor=monitor,
+				every_n_epochs=1, save_top_k=save_top_k, save_last=True,
+				save_on_train_epoch_end=False))
 		logger = TensorBoardLogger(self.directory, name='', default_hp_metric=False, log_graph=False)
-		self.trainer = Trainer(accelerator='gpu', devices=1,
-								callbacks=[self._experiment_stopper, val_loss_ckpt, greedy_bleu_ckpt, bs_bleu_ckpt],
-								logger=logger,
-								**trainer_config)
+		self.trainer = Trainer(
+			accelerator='gpu', devices=1,
+			callbacks=[self._experiment_stopper, *checkpoint_callbacks],
+			logger=logger,
+			**self.config.training_config)
 
-	def remove_exp_folder(self):
-		''' Removes the experiment folder. '''
+	def remove_exp_folder(self) -> None:
+		''' Delete the experiment output directory. '''
 		shutil.rmtree(self.directory)
 
-	def get_dict_representation(self):
-		''' Returns a dictionary representation of the experiment. '''
+	def get_dict_representation(self) -> dict:
+		''' Return a JSON-serializable summary of this experiment.
+
+		Returns:
+			summary: dict  keys: name, state, err_buffer, config.
+		'''
 		return {
 			'name': self.name,
 			'state': self.state,
 			'err_buffer': self.err_buffer,
 			'config': {
 				'model': self.config.model_config,
-				'dl': self.config.dls_config,
-				'trainer': self.config.trainer_config
+				'dataset': self.config.dataset_config,
+				'training': self.config.training_config,
 			}
 		}
 
-	def __str__(self):
+	def __str__(self) -> str:
 		return json.dumps(self.get_dict_representation(), indent=4)

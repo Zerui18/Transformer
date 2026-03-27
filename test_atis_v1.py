@@ -9,9 +9,9 @@ VOCAB_SIZE = [1000, 2000, 3000]
 N_CNN_LAYERS = [1, 3, 5]
 
 for n_blocks, n_cnn_layers, vocab_size in product(N_BLOCKS, N_CNN_LAYERS, VOCAB_SIZE):
-	config = ExperimentConfig.from_config_files(f'configs/atis-v1/model.yaml',
-												f'configs/atis-v1/dls.yaml',
-												f'configs/atis-v1/trainer.yaml')
+	config = ExperimentConfig.from_config_files(f'experiments/atis-v1/config/model.yaml',
+												f'experiments/atis-v1/config/dataset.yaml',
+												f'experiments/atis-v1/config/training.yaml')
 	config.model_config['init_args']['n_blocks'] = n_blocks
 	config.model_config['init_args']['n_cnn_layers'] = n_cnn_layers
 	config.model_config['init_args']['vocab_size'] = vocab_size

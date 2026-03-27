@@ -6,12 +6,15 @@ requires-python = ">=3.12"
 dependencies = [
     "torch>=2.0",
     "pytorch-lightning>=2.0",
+    "einops>=0.7",
+    "torchmetrics>=1.0",
     "sentencepiece>=0.1.96",
     "numpy>=1.24",
     "pandas>=2.0",
     "pyyaml>=6.0",
     "nltk>=3.8",
     "apscheduler>=3.10",
+    "tensorboard>=2.20.0",
 ]
 
 [project.optional-dependencies]

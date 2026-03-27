@@ -2,8 +2,8 @@ import torch
 import numpy as np
 import sentencepiece as sp
 import argparse
-from models.whisper import Whisper
-from models.transformer import Transformer
+from components.models.seq2seq.whisper import Whisper
+from components.models.seq2seq.transformer import Transformer
 
 UNK_IDX = 0
 BOS_IDX = 1

@@ -1,0 +1,63 @@
+{
+  "language": "python",
+  "framework": "pytorch-lightning",
+  "packageManager": "uv",
+  "typecheck": {
+    "command": null,
+    "perFile": false
+  },
+  "test": {
+    "command": null,
+    "framework": null
+  },
+  "qualityRules": {
+    "builtIn": ["no-confirm-alert", "no-transition-all"],
+    "custom": []
+  },
+  "protectedFiles": [
+    ".claude/harness.json"
+  ],
+  "features": {
+    "intakeScanner": true,
+    "telemetry": true
+  },
+  "registeredSkills": [
+    "architect",
+    "archon",
+    "ascii-diagram",
+    "autopilot",
+    "create-app",
+    "create-skill",
+    "dashboard",
+    "design",
+    "do",
+    "doc-gen",
+    "experiment",
+    "fleet",
+    "learn",
+    "live-preview",
+    "marshal",
+    "merge-review",
+    "postmortem",
+    "prd",
+    "pr-watch",
+    "qa",
+    "refactor",
+    "research",
+    "research-fleet",
+    "review",
+    "scaffold",
+    "schedule",
+    "session-handoff",
+    "setup",
+    "systematic-debugging",
+    "test-gen",
+    "triage"
+  ],
+  "registeredSkillCount": 31,
+  "agentTimeouts": {
+    "skill": 600000,
+    "research": 900000,
+    "build": 1800000
+  }
+}

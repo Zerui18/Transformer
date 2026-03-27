@@ -12,9 +12,9 @@ vocab_size = 1000
 attn_type = 'roformer_attn'
 
 for n_blocks, n_heads, emb_dim, wt in product(N_BLOCKS, N_HEADS, EMB_DIM, weight_tying):
-	config = ExperimentConfig.from_config_files(f'configs/de-en-v1-sp-multi30k/model.yaml',
-												f'configs/de-en-v1-sp-multi30k/dls.yaml',
-												f'configs/de-en-v1-sp-multi30k/trainer.yaml')
+	config = ExperimentConfig.from_config_files(f'experiments/de-en-v1-sp-multi30k/config/model.yaml',
+												f'experiments/de-en-v1-sp-multi30k/config/dataset.yaml',
+												f'experiments/de-en-v1-sp-multi30k/config/training.yaml')
 	config.model_config['init_args']['n_blocks'] = n_blocks
 	config.model_config['init_args']['src_vocab_size'] = vocab_size
 	config.model_config['init_args']['tgt_vocab_size'] = vocab_size
