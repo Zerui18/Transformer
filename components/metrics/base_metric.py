@@ -7,16 +7,14 @@ import torchmetrics
 
 
 class BaseMetric(torchmetrics.Metric, abc.ABC):
-	''' Abstract base for all zlab metrics.
+	''' Abstract base for all zlab metrics (step-level).
 
-	Wraps torchmetrics.Metric with subsampling support, a required-keys
-	contract, and step/epoch frequency control.
+	Wraps torchmetrics.Metric with subsampling support and a required-keys
+	contract so models know which produce() outputs a metric needs.
 
 	Attributes:
 		requires: ``set[str]``: The keys this metric expects from model.produce().
 		name: ``str``: Display name used as the log key (defaults to class name).
-		frequency: ``str``: 'step' for per-batch updates, 'epoch' for end-of-epoch updates.
-		num_samples: ``int``: For epoch metrics, how many samples to evaluate on.
 		subsample_rate: ``float | None``: Fraction of updates to keep (None = keep all).
 		is_differentiable: ``bool``: Whether this metric supports gradient flow.
 		higher_is_better: ``bool``: Whether higher values indicate better performance.
@@ -35,25 +33,17 @@ class BaseMetric(torchmetrics.Metric, abc.ABC):
 
 	def __init__(self,
 				 name: str | None = None,
-				 frequency: str = 'step',
-				 num_samples: int = 32,
 				 subsample_rate: float | None = None):
 		''' Initialize the base metric.
 
 		Args:
-			name: ``str | None``: display name for logging. Defaults to the class name.
-			frequency: ``str``: 'step' (update per batch) or 'epoch' (update once at epoch end).
-			num_samples: ``int``: for epoch metrics, number of samples to evaluate on.
-			subsample_rate: ``float | None``: [0 < x <= 1 or None] rate at which to keep updates. None means all updates are used.
+			name: ``str | None``: Display name for logging. Defaults to the class name.
+			subsample_rate: ``float | None``: Rate at which to keep updates (0 < x <= 1, or None for all).
 		'''
 		super().__init__()
-		if frequency not in ('step', 'epoch'):
-			raise ValueError(f'frequency must be "step" or "epoch", got {frequency!r}')
 		if subsample_rate is not None and not (0.0 < subsample_rate <= 1.0):
 			raise ValueError(f'subsample_rate must be in (0, 1] or None, got {subsample_rate}')
 		self.name = name or self.__class__.__name__
-		self.frequency = frequency
-		self.num_samples = num_samples
 		self.subsample_rate = subsample_rate
 
 	def update(self, **kwargs) -> None:
@@ -80,6 +70,6 @@ class BaseMetric(torchmetrics.Metric, abc.ABC):
 		''' Compute the metric value from accumulated state.
 
 		Returns:
-			``Tensor[(), float32]``: scalar metric value.
+			``Tensor[(), float32]``: Scalar metric value.
 		'''
 		...

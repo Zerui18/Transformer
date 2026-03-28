@@ -48,7 +48,8 @@ class Transformer(BaseModel):
 				 output_attention: bool = False,
 				 tokenizer: BaseTokenizer | None = None,
 				 optimizer: dict[str, Any] = {},
-				 metrics: dict[str, list[BaseMetric]] | None = None):
+				 metrics: dict[str, list[BaseMetric]] | None = None,
+				 epoch_metrics: list[BaseMetric] | None = None):
 		''' Initialize the Transformer model.
 
 		Args:
@@ -67,9 +68,10 @@ class Transformer(BaseModel):
 			output_attention: ``bool``: Whether to capture attention weights via hooks.
 			tokenizer: ``BaseTokenizer | None``: Tokenizer for decoding in epoch metrics.
 			optimizer: ``dict[str, Any]``: Optimizer config with ``cls`` key and kwargs.
-			metrics: ``dict[str, list[BaseMetric]] | None``: Stage-keyed metrics.
+			metrics: ``dict[str, list[BaseMetric]] | None``: Stage-keyed step metrics.
+			epoch_metrics: ``list[BaseMetric] | None``: Epoch-level metrics (sample independently).
 		'''
-		super().__init__(optimizer=optimizer, metrics=metrics)
+		super().__init__(optimizer=optimizer, metrics=metrics, epoch_metrics=epoch_metrics)
 		self.save_hyperparameters(ignore=['tokenizer', 'metrics'])
 		self.max_len = max_len
 		self.tokenizer = tokenizer

@@ -23,13 +23,14 @@ class TokenAccuracyMetric(BaseMetric):
 		''' Keys needed from model.produce(): y_pred logits and y_true token ids. '''
 		return {'y_pred', 'y_true'}
 
-	def __init__(self, subsample_rate: float | None = None):
+	def __init__(self, name: str = 'token_acc', subsample_rate: float | None = None):
 		''' Initialize the token accuracy metric.
 
 		Args:
+			name: ``str``: display name for logging.
 			subsample_rate: ``float | None``: fraction of updates to keep. None = all.
 		'''
-		super().__init__(subsample_rate=subsample_rate)
+		super().__init__(name=name, subsample_rate=subsample_rate)
 		self.add_state('correct', default=torch.tensor(0, dtype=torch.long), dist_reduce_fx='sum')
 		self.add_state('total', default=torch.tensor(0, dtype=torch.long), dist_reduce_fx='sum')
 

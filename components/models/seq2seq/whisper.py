@@ -46,7 +46,8 @@ class Whisper(BaseModel):
 				 output_attention: bool = False,
 				 tokenizer: BaseTokenizer | None = None,
 				 optimizer: dict[str, Any] = {},
-				 metrics: dict[str, list[BaseMetric]] | None = None):
+				 metrics: dict[str, list[BaseMetric]] | None = None,
+				 epoch_metrics: list[BaseMetric] | None = None):
 		''' Initialize the Whisper model.
 
 		Args:
@@ -68,7 +69,7 @@ class Whisper(BaseModel):
 			optimizer: ``dict[str, Any]``: optimizer config with 'cls' key and kwargs.
 			metrics: ``dict[str, list[BaseMetric]] | None``: stage-keyed metrics.
 		'''
-		super().__init__(optimizer=optimizer, metrics=metrics)
+		super().__init__(optimizer=optimizer, metrics=metrics, epoch_metrics=epoch_metrics)
 		self.save_hyperparameters(ignore=['tokenizer', 'metrics'])
 		self.tokenizer = tokenizer
 		self.enc_max_len = enc_max_len

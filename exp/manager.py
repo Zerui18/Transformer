@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from multiprocessing import Process, Value, Array
 
@@ -117,9 +116,12 @@ class ExperimentManager:
 
 	def stop_current_experiment(self) -> None:
 		''' Signal the current experiment to stop and move it to the stopped queue. '''
+		if self.current_experiment is None:
+			return
 		self.current_experiment.state = ExperimentState.STOPPED
 		stopped = self._remove_current_experiment()
 		self.stopped_experiments.append(stopped)
+		self._run_next_in_queue()
 
 	def move_in_queue(self, src_index: int, dst_index: int) -> None:
 		''' Reorder the queue by moving an experiment from one position to another.
@@ -242,9 +244,15 @@ class ExperimentManager:
 	def _check_current_experiment(self) -> None:
 		''' Poll the current experiment state and handle completion/failure. '''
 		if self.current_experiment is not None:
+			advanced = False
 			if self.current_experiment.state == ExperimentState.FAILED:
 				print(f'Experiment {self.current_experiment.name} failed.')
 				self.failed_experiments.append(self._remove_current_experiment())
+				advanced = True
 			elif self.current_experiment.state == ExperimentState.COMPLETED:
 				print(f'Experiment {self.current_experiment.name} completed.')
 				self.completed_experiments.append(self._remove_current_experiment())
+				advanced = True
+			# start next experiment after clearing the current one
+			if advanced:
+				self._run_next_in_queue()

@@ -4,6 +4,7 @@ from typing import Any
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.utilities import grad_norm
+from torchmetrics import MetricCollection
 
 from components.metrics.base_metric import BaseMetric
 
@@ -12,12 +13,16 @@ class BaseModel(pl.LightningModule, abc.ABC):
 	''' Abstract base for all zlab models.
 
 	Extends LightningModule with a produce()/supports() contract that separates
-	forward computation from the training loop. Metrics are stage-specific and
-	support both per-step and per-epoch frequencies.
+	forward computation from the training loop.
+
+	Two kinds of metrics:
+	- Step metrics (``metrics``): updated per-batch in train/val/test steps from step outputs.
+	  Stored as MetricCollection module attributes so Lightning auto-handles device placement.
+	- Epoch metrics (``epoch_metrics``): independently sample from the val dataloader
+	  and call produce() at the end of each training epoch. Stored as a MetricCollection.
 
 	Attributes:
-		optimizer_hparams: ``dict[str, Any]``: optimizer config with 'cls' key and kwargs.
-		metrics: ``dict[str, list[BaseMetric]]``: stage name -> list of metrics for that stage.
+		optimizer_hparams: ``dict[str, Any]``: Optimizer config with 'cls' key and kwargs.
 
 	Subclasses must implement:
 		- produce(batch, requested) -> dict[str, Any]
@@ -26,12 +31,14 @@ class BaseModel(pl.LightningModule, abc.ABC):
 
 	def __init__(self,
 				 optimizer: dict[str, Any] = {},
-				 metrics: dict[str, list[BaseMetric]] | None = None):
+				 metrics: dict[str, list[BaseMetric]] | None = None,
+				 epoch_metrics: list[BaseMetric] | None = None):
 		''' Initialize the base model.
 
 		Args:
-			optimizer: ``dict[str, Any]``: optimizer config; 'cls' names a torch.optim class, remaining keys are passed as kwargs. Defaults to AdamW with lr=5e-4.
-			metrics: ``dict[str, list[BaseMetric]] | None``: stage-keyed metrics ('train', 'val', 'test'). None means no metrics.
+			optimizer: ``dict[str, Any]``: Optimizer config; 'cls' names a torch.optim class. Defaults to AdamW with lr=5e-4.
+			metrics: ``dict[str, list[BaseMetric]] | None``: Stage-keyed step metrics ('train', 'val', 'test').
+			epoch_metrics: ``list[BaseMetric] | None``: Epoch-level metrics that sample from val dataloader independently.
 		'''
 		super().__init__()
 		self.optimizer_hparams = {
@@ -39,34 +46,57 @@ class BaseModel(pl.LightningModule, abc.ABC):
 			'lr': 5e-4,
 			**optimizer,
 		}
-		self.metrics = metrics or {}
-		self._train_losses: list[float] = []
-		self._val_losses: list[float] = []
+		# build MetricCollections as proper nn.Module attributes for auto device placement
+		metrics = metrics or {}
+		for stage, metric_list in metrics.items():
+			collection = MetricCollection(
+				{m.name: m for m in metric_list},
+				prefix=f'{stage}_')
+			setattr(self, f'{stage}_metrics', collection)
+		self._metric_stages = list(metrics.keys())
+
+		epoch_metrics = epoch_metrics or []
+		self.epoch_metric_collection = MetricCollection(
+			{m.name: m for m in epoch_metrics},
+			prefix='epoch_')
+		self._epoch_metric_list = epoch_metrics  # keep reference for num_samples access
+
+	def _get_step_metrics(self, stage: str) -> MetricCollection | None:
+		''' Get the MetricCollection for a stage, or None if not configured. '''
+		return getattr(self, f'{stage}_metrics', None)
 
 	def _validate_metrics(self) -> None:
 		''' Check that every metric's requires is a subset of supports(). '''
 		supported = self.supports()
-		for stage, metric_list in self.metrics.items():
-			for metric in metric_list:
+		for stage in self._metric_stages:
+			collection = self._get_step_metrics(stage)
+			if collection is None:
+				continue
+			for name, metric in collection.items():
 				missing = metric.requires - supported
 				if missing:
 					raise ValueError(
-						f'{metric.name} (stage={stage}) requires keys '
+						f'{name} (stage={stage}) requires keys '
 						f'{missing} but model only supports {supported}')
+		for metric in self._epoch_metric_list:
+			missing = metric.requires - supported
+			if missing:
+				raise ValueError(
+					f'{metric.name} (epoch) requires keys '
+					f'{missing} but model only supports {supported}')
 
 	@abc.abstractmethod
 	def produce(self, batch: dict[str, Any], requested: set[str]) -> dict[str, Any]:
 		''' Produce requested outputs from a batch.
 
 		Args:
-			batch: ``dict[str, Any]``: input batch from the dataloader.
-			requested: ``set[str]``: which outputs to compute.
-		Returns:
-			``dict[str, Any]``: at minimum {'loss': Tensor} when 'loss' is requested.
+			batch: ``dict[str, Any]``: Input batch from the dataloader.
+			requested: ``set[str]``: Which outputs to compute.
 
-		Must always produce 'loss' when requested. Other keys are model-specific
-		and consumed by metrics. Epoch metrics may request expensive keys (e.g.
-		'decoded_greedy') that trigger autoregressive decoding.
+		Returns:
+			``dict[str, Any]``: At minimum {'loss': Tensor} when 'loss' is requested.
+
+		May support expensive keys (e.g. 'decoded_greedy') for epoch metrics.
 		'''
 		...
 
@@ -75,72 +105,66 @@ class BaseModel(pl.LightningModule, abc.ABC):
 		''' Return the set of all output keys this model can produce.
 
 		Returns:
-			``set[str]``: e.g. {'loss', 'y_pred', 'y_true', 'decoded_greedy', 'decoded_beam'}.
+			``set[str]``: e.g. {'loss', 'y_pred', 'y_true', 'decoded_greedy'}.
 		'''
 		...
 
-	# --- Metric helpers ---
+	# --- Training loop ---
 
-	def _step_metrics(self, stage: str) -> list[BaseMetric]:
-		''' Return only the step-frequency metrics for a stage. '''
-		return [m for m in self.metrics.get(stage, []) if m.frequency == 'step']
-
-	def _epoch_metrics(self, stage: str) -> list[BaseMetric]:
-		''' Return only the epoch-frequency metrics for a stage. '''
-		return [m for m in self.metrics.get(stage, []) if m.frequency == 'epoch']
-
-	def _gather_requested(self, stage: str, frequency: str = 'step') -> set[str]:
-		''' Collect the union of 'loss' and all metric requires for the given stage and frequency.
+	def _gather_requested(self, stage: str) -> set[str]:
+		''' Collect 'loss' + all step metric requires for the given stage.
 
 		Args:
-			stage: ``str``: one of 'train', 'val', 'test'.
-			frequency: ``str``: 'step' or 'epoch'.
+			stage: ``str``: One of 'train', 'val', 'test'.
+
 		Returns:
-			``set[str]``: keys to request from produce().
+			``set[str]``: Keys to request from produce().
 		'''
 		requested = {'loss'}
-		metrics = self._step_metrics(stage) if frequency == 'step' else self._epoch_metrics(stage)
-		for metric in metrics:
-			requested |= metric.requires
+		collection = self._get_step_metrics(stage)
+		if collection is not None:
+			for metric in collection.values():
+				requested |= metric.requires
 		return requested
 
-	# --- Training loop (delegates to produce + metrics) ---
-
 	def _step(self, batch: dict[str, Any], stage: str) -> torch.Tensor:
-		''' Shared logic for training/validation/test steps. Only runs step-frequency metrics.
+		''' Shared logic for training/validation/test steps.
 
 		Args:
-			batch: ``dict[str, Any]``: input batch from the dataloader.
-			stage: ``str``: one of 'train', 'val', 'test'.
+			batch: ``dict[str, Any]``: Input batch from the dataloader.
+			stage: ``str``: One of 'train', 'val', 'test'.
+
 		Returns:
-			``Tensor[(), float32]``: the scalar loss.
+			``Tensor[(), float32]``: The scalar loss.
 		'''
-		requested = self._gather_requested(stage, frequency='step')
+		requested = self._gather_requested(stage)
 		outputs = self.produce(batch, requested)
 		loss = outputs['loss']
 
 		self.log(f'{stage}_loss', loss, prog_bar=True)
 
-		# update step-frequency metrics only
-		for metric in self._step_metrics(stage):
-			metric_kwargs = {k: outputs[k] for k in metric.requires}
-			metric.update(**metric_kwargs)
-			self.log(f'{stage}_{metric.name}', metric, prog_bar=True)
+		# update step metrics via MetricCollection
+		collection = self._get_step_metrics(stage)
+		if collection is not None:
+			# build kwargs for all metrics (union of requires)
+			all_keys: set[str] = set()
+			for metric in collection.values():
+				all_keys |= metric.requires
+			metric_kwargs = {k: outputs[k] for k in all_keys}
+			self.log_dict(collection(**metric_kwargs), prog_bar=True, on_step=True, on_epoch=True)
 
 		return loss
 
-	def _run_epoch_metrics(self, stage: str) -> None:
-		''' Run epoch-frequency metrics by sampling from the val dataloader and calling produce.
-
-		Args:
-			stage: ``str``: the stage to run epoch metrics for.
-		'''
-		epoch_metrics = self._epoch_metrics(stage)
-		if not epoch_metrics or not hasattr(self, '_val_dataloader'):
+	def _run_epoch_metrics(self) -> None:
+		''' Run epoch metrics by sampling from the val dataloader and calling produce(). '''
+		if not self._epoch_metric_list or not hasattr(self, '_val_dataloader'):
 			return
 
-		requested = self._gather_requested(stage, frequency='epoch')
-		max_samples = max(m.num_samples for m in epoch_metrics)
+		# gather all epoch metric requires
+		requested: set[str] = set()
+		for metric in self._epoch_metric_list:
+			requested |= metric.requires
+		max_samples = max(m.num_samples for m in self._epoch_metric_list)
 		samples_seen = 0
 
 		self.eval()
@@ -148,65 +172,38 @@ class BaseModel(pl.LightningModule, abc.ABC):
 			for batch in self._val_dataloader:
 				if samples_seen >= max_samples:
 					break
-				# move batch to device
-				batch = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in batch.items()}
+				batch = {k: v.to(self.device) for k, v in batch.items()}
+				# slice batch down if it would exceed max_samples
+				remaining = max_samples - samples_seen
+				batch_size = next(iter(batch.values())).size(0)
+				if batch_size > remaining:
+					batch = {k: v[:remaining] for k, v in batch.items()}
+					batch_size = remaining
 				outputs = self.produce(batch, requested)
-				for metric in epoch_metrics:
+				for metric in self._epoch_metric_list:
 					if samples_seen < metric.num_samples:
 						metric_kwargs = {k: outputs[k] for k in metric.requires}
 						metric.update(**metric_kwargs)
-				# count samples in this batch
-				first_val = next(iter(batch.values()))
-				samples_seen += first_val.size(0) if hasattr(first_val, 'size') else len(first_val)
+				samples_seen += batch_size
 
-		# log and reset
-		for metric in epoch_metrics:
-			value = metric.compute()
-			self.log(f'{stage}_{metric.name}', value, prog_bar=True)
-			metric.reset()
+		# log and reset via MetricCollection
+		self.log_dict(self.epoch_metric_collection.compute(), prog_bar=True)
+		self.epoch_metric_collection.reset()
 
 	def training_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
-		''' Training step: produce outputs, compute loss, update step metrics.
-
-		Args:
-			batch: ``dict[str, Any]``: input batch.
-			batch_idx: ``int``: index of this batch within the epoch.
-		Returns:
-			``Tensor[(), float32]``: scalar loss for backprop.
-		'''
-		loss = self._step(batch, 'train')
-		self._train_losses.append(loss.item())
-		return loss
+		''' Training step: produce outputs, compute loss, update step metrics. '''
+		return self._step(batch, 'train')
 
 	def validation_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
-		''' Validation step: produce outputs, compute loss, update step metrics.
-
-		Args:
-			batch: ``dict[str, Any]``: input batch.
-			batch_idx: ``int``: index of this batch within the epoch.
-		Returns:
-			``Tensor[(), float32]``: scalar loss.
-		'''
-		loss = self._step(batch, 'val')
-		self._val_losses.append(loss.item())
-		return loss
+		''' Validation step: produce outputs, compute loss, update step metrics. '''
+		return self._step(batch, 'val')
 
 	def test_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
-		''' Test step: produce outputs, compute loss, update step metrics.
-
-		Args:
-			batch: ``dict[str, Any]``: input batch.
-			batch_idx: ``int``: index of this batch within the epoch.
-		Returns:
-			``Tensor[(), float32]``: scalar loss.
-		'''
+		''' Test step: produce outputs, compute loss, update step metrics. '''
 		return self._step(batch, 'test')
 
 	def configure_optimizers(self):
-		''' Configure optimizer from self.optimizer_hparams using the nested dict pattern.
-
-		The 'cls' key names a torch.optim class; all other keys are passed as kwargs.
-		'''
+		''' Configure optimizer from self.optimizer_hparams using the nested dict pattern. '''
 		hparams = dict(self.optimizer_hparams)
 		cls_name = hparams.pop('cls')
 		opt_class = getattr(torch.optim, cls_name)
@@ -214,28 +211,10 @@ class BaseModel(pl.LightningModule, abc.ABC):
 
 	# --- Epoch hooks ---
 
-	def on_train_epoch_start(self) -> None:
-		''' Reset per-epoch train loss accumulator. '''
-		self._train_losses = []
-
-	def on_validation_epoch_start(self) -> None:
-		''' Reset per-epoch validation loss accumulator. '''
-		self._val_losses = []
-
 	def on_train_epoch_end(self) -> None:
-		''' Log average training loss for the epoch. '''
-		if self._train_losses:
-			avg = sum(self._train_losses) / len(self._train_losses)
-			print(f'Epoch {self.trainer.current_epoch} train loss: {avg:.4f}')
-
-	def on_validation_epoch_end(self) -> None:
-		''' Log average validation loss, then run epoch-frequency metrics. '''
-		if self._val_losses:
-			avg = sum(self._val_losses) / len(self._val_losses)
-			print(f'Epoch {self.trainer.current_epoch} val loss: {avg:.4f}')
-		# run epoch metrics (e.g. decoding BLEU) if any
+		''' Run epoch metrics at the end of each training epoch. '''
 		if self.global_step > 0:
-			self._run_epoch_metrics('val')
+			self._run_epoch_metrics()
 
 	def on_before_optimizer_step(self, optimizer) -> None:
 		''' Log gradient norms before optimizer step. '''

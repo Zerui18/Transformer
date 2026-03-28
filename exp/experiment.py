@@ -52,12 +52,12 @@ class ExperimentStopper(Callback):
 			return False
 		return self.state.value == ExperimentState.STOPPED
 
-	def on_train_batch_end(self, trainer: Trainer, *args) -> None:
+	def on_train_batch_end(self, trainer: Trainer, *args, **kwargs) -> None:
 		''' Check for stop signal after each training batch. '''
 		if self.check_should_stop():
 			trainer.should_stop = True
 
-	def on_validation_batch_end(self, trainer: Trainer, *args) -> None:
+	def on_validation_batch_end(self, trainer: Trainer, *args, **kwargs) -> None:
 		''' Check for stop signal after each validation batch. '''
 		if self.check_should_stop():
 			trainer.should_stop = True
@@ -215,7 +215,6 @@ class Experiment:
 		try:
 			self._init_resources()
 			self.state = ExperimentState.RUNNING
-			# attach val dataloader for model-level BLEU reporting
 			self.model._val_dataloader = self.dls['valid']
 			self.trainer.fit(self.model, self.dls['train'], self.dls['valid'],
 							 ckpt_path=self.config.resume_from_checkpoint)
@@ -263,8 +262,7 @@ class Experiment:
 			cls = components.datasets_registry[class_name]
 			ds = cls(**ds_args)
 			dls[name] = DataLoader(ds, collate_fn=ds.get_collate_function(),
-								   num_workers=8, pin_memory=True, drop_last=True,
-								   **dl_args)
+								   num_workers=8, pin_memory=True, **dl_args)
 		self.dls = dls
 
 	def _init_model(self) -> None:
@@ -292,15 +290,27 @@ class Experiment:
 						t_cls = components.tokenizers_registry[t.get('cls') or t.get('class')]
 						m_args['tokenizer'] = t_cls(**{k: v for k, v in t.items() if k not in ('cls', 'class')})
 					metrics[stage].append(components.metrics_registry[m_cls_name](**m_args))
+		# epoch metrics: flat list of metric instances (sample independently at epoch end)
+		epoch_metrics: list = []
+		if 'epoch_metrics' in mc:
+			for mcfg in mc['epoch_metrics']:
+				m_cls_name = mcfg['cls']
+				m_args = {k: v for k, v in mcfg.items() if k != 'cls'}
+				if 'tokenizer' in m_args and isinstance(m_args['tokenizer'], dict):
+					t = m_args['tokenizer']
+					t_cls = components.tokenizers_registry[t.get('cls') or t.get('class')]
+					m_args['tokenizer'] = t_cls(**{k: v for k, v in t.items() if k not in ('cls', 'class')})
+				epoch_metrics.append(components.metrics_registry[m_cls_name](**m_args))
 		# optimizer: nested dict with 'cls' key
 		optimizer = dict(mc.get('optimizer', {}))
 		# model kwargs: everything except reserved keys
-		reserved = {'cls', 'tokenizer', 'metrics', 'optimizer', 'checkpoints'}
+		reserved = {'cls', 'tokenizer', 'metrics', 'epoch_metrics', 'optimizer', 'checkpoints'}
 		init_args = {k: v for k, v in mc.items() if k not in reserved}
 		# model
 		model_cls_name = mc['cls']
 		self.model = components.models_registry[model_cls_name](
-			**init_args, tokenizer=tokenizer, optimizer=optimizer, metrics=metrics)
+			**init_args, tokenizer=tokenizer, optimizer=optimizer,
+			metrics=metrics, epoch_metrics=epoch_metrics)
 
 	def _init_trainer(self) -> None:
 		''' Initialize the Lightning Trainer with callbacks, logger, and config-driven checkpoints. '''
@@ -309,18 +319,22 @@ class Experiment:
 		checkpoint_configs = self.config.model_config.get('checkpoints', [
 			{'monitor': 'val_loss', 'mode': 'min'},
 		])
+		# determine which monitors are epoch metrics (logged in on_train_epoch_end)
+		epoch_metric_names = {f'epoch_{m["name"]}' for m in self.config.model_config.get('epoch_metrics', []) if 'name' in m}
 		checkpoint_callbacks = []
 		for ckpt_cfg in checkpoint_configs:
 			monitor = ckpt_cfg['monitor']
 			mode = ckpt_cfg.get('mode', 'min')
 			save_top_k = ckpt_cfg.get('save_top_k', 2)
 			filename = ckpt_cfg.get('filename', f'model-{{epoch}}-{{step}}-{{{monitor}:.2f}}')
+			# epoch metrics are logged in on_train_epoch_end, so checkpoint must fire after that
+			save_on_train_epoch_end = ckpt_cfg.get('save_on_train_epoch_end', monitor in epoch_metric_names)
 			checkpoint_callbacks.append(ModelCheckpoint(
 				self.directory / 'checkpoints/',
 				filename=filename,
 				mode=mode, monitor=monitor,
 				every_n_epochs=1, save_top_k=save_top_k, save_last=True,
-				save_on_train_epoch_end=False))
+				save_on_train_epoch_end=save_on_train_epoch_end))
 		logger = TensorBoardLogger(self.directory, name='', default_hp_metric=False, log_graph=False)
 		self.trainer = Trainer(
 			accelerator='gpu', devices=1,

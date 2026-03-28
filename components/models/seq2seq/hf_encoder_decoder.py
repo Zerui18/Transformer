@@ -35,7 +35,8 @@ class HFEncoderDecoder(BaseModel):
 				 pad_index: int = 3,
 				 attention_type: str = 'vanilla',
 				 optimizer: dict[str, Any] = {},
-				 metrics: dict[str, list[BaseMetric]] | None = None):
+				 metrics: dict[str, list[BaseMetric]] | None = None,
+				 epoch_metrics: list[BaseMetric] | None = None):
 		''' Initialize the HFEncoderDecoder model.
 
 		Args:
@@ -54,7 +55,7 @@ class HFEncoderDecoder(BaseModel):
 			optimizer: ``dict[str, Any]``: optimizer config with 'cls' key and kwargs.
 			metrics: ``dict[str, list[BaseMetric]] | None``: stage-keyed metrics.
 		'''
-		super().__init__(optimizer=optimizer, metrics=metrics)
+		super().__init__(optimizer=optimizer, metrics=metrics, epoch_metrics=epoch_metrics)
 		self.save_hyperparameters(ignore=['metrics'])
 		self.max_len = max_len
 		self.criterion = nn.CrossEntropyLoss(ignore_index=pad_index)
