@@ -2,6 +2,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 import sentencepiece as sp
 from dataclasses import dataclass
+from typing import Callable
 from .base import BaseDataset
 
 @dataclass
@@ -35,7 +36,7 @@ class TextGenDataset(BaseDataset):
 		return len(self._tokenized_text) - self.config.block_size
 	
 	@staticmethod
-	def get_collate_function() -> callable or None:
+	def get_collate_function() -> Callable[[list[tuple[torch.Tensor, torch.Tensor]]], tuple[torch.Tensor, torch.Tensor]]:
 		def collate_function(batch):
 			x, y = zip(*batch)
 			x = pad_sequence(x, batch_first=True, padding_value=TextGenDataset.PAD_IDX)

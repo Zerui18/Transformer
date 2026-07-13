@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zlab · experiments</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#129514;</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+	<div class="brand">
+		<span class="brand-name">zlab</span>
+		<span class="brand-sub">experiment manager</span>
+	</div>
+	<div class="topbar-right">
+		<span id="conn" class="conn" title="connection to the manager server">
+			<span class="conn-dot"></span><span id="conn-label">connecting…</span>
+		</span>
+		<span id="host-label" class="host-label"></span>
+		<button class="btn btn-primary" data-action="open-create">+ New experiment</button>
+	</div>
+</header>
+
+<main>
+	<section id="machine" class="machine-strip" aria-label="machine state"></section>
+
+	<section id="current" class="panel current-panel" aria-label="current experiment"></section>
+
+	<div class="columns">
+		<div class="col">
+			<section class="panel" aria-label="queued experiments">
+				<div class="panel-head">
+					<h2>Queue <span id="queue-count" class="count"></span></h2>
+					<div class="panel-actions">
+						<button class="btn btn-ghost btn-sm" data-action="queue-stop-all" title="move all queued experiments to stopped">Stop all</button>
+					</div>
+				</div>
+				<div id="queue" class="panel-body"></div>
+			</section>
+			<section class="panel" id="disk-panel" aria-label="untracked folders on disk" hidden>
+				<div class="panel-head">
+					<h2>On disk <span id="disk-count" class="count"></span></h2>
+					<span class="panel-hint">experiment folders not tracked by this manager session</span>
+				</div>
+				<div id="disk" class="panel-body"></div>
+			</section>
+		</div>
+		<div class="col">
+			<section class="panel" aria-label="stopped experiments">
+				<div class="panel-head">
+					<h2>Stopped <span id="stopped-count" class="count"></span></h2>
+					<div class="panel-actions">
+						<button class="btn btn-ghost btn-sm" data-action="stopped-enqueue-all">Requeue all</button>
+						<button class="btn btn-ghost btn-sm btn-danger-text" data-action="stopped-remove-all">Remove all</button>
+					</div>
+				</div>
+				<div id="stopped" class="panel-body"></div>
+			</section>
+			<section class="panel" aria-label="failed experiments">
+				<div class="panel-head">
+					<h2>Failed <span id="failed-count" class="count"></span></h2>
+					<div class="panel-actions">
+						<button class="btn btn-ghost btn-sm" data-action="failed-enqueue-all">Retry all</button>
+						<button class="btn btn-ghost btn-sm btn-danger-text" data-action="failed-remove-all">Remove all</button>
+					</div>
+				</div>
+				<div id="failed" class="panel-body"></div>
+			</section>
+			<section class="panel" aria-label="completed experiments">
+				<div class="panel-head">
+					<h2>Completed <span id="completed-count" class="count"></span></h2>
+					<div class="panel-actions">
+						<button class="btn btn-ghost btn-sm" data-action="completed-clear-all" title="clear the list (folders stay on disk)">Clear list</button>
+					</div>
+				</div>
+				<div id="completed" class="panel-body"></div>
+			</section>
+		</div>
+	</div>
+</main>
+
+<!-- create / clone experiment -->
+<dialog id="create-modal" class="modal">
+	<form method="dialog" class="modal-card modal-wide" id="create-form">
+		<div class="modal-head">
+			<h2 id="create-title">New experiment</h2>
+			<div class="template-row">
+				<label for="template-select" class="lbl">From template</label>
+				<select id="template-select"><option value="">—</option></select>
+			</div>
+		</div>
+		<label class="lbl" for="create-name">Name</label>
+		<input id="create-name" type="text" autocomplete="off" spellcheck="false" placeholder="multi30k-v3-nb6-roformer" required>
+		<div class="yaml-grid">
+			<div><label class="lbl" for="yaml-model">model.yaml</label><textarea id="yaml-model" spellcheck="false"></textarea></div>
+			<div><label class="lbl" for="yaml-dls">dls.yaml</label><textarea id="yaml-dls" spellcheck="false"></textarea></div>
+			<div><label class="lbl" for="yaml-trainer">trainer.yaml</label><textarea id="yaml-trainer" spellcheck="false"></textarea></div>
+		</div>
+		<details class="advanced">
+			<summary>Resume options</summary>
+			<label class="lbl" for="resume-dir">Resume from directory</label>
+			<input id="resume-dir" type="text" spellcheck="false" placeholder="experiments/sweep/old-run (optional)">
+			<label class="lbl" for="resume-ckpt">Resume from checkpoint</label>
+			<input id="resume-ckpt" type="text" spellcheck="false" placeholder="last.ckpt (optional)">
+		</details>
+		<div id="create-error" class="form-error" hidden></div>
+		<div class="modal-foot">
+			<button type="button" class="btn btn-ghost" data-action="close-create">Cancel</button>
+			<button type="submit" class="btn btn-primary">Enqueue</button>
+		</div>
+	</form>
+</dialog>
+
+<!-- experiment details -->
+<dialog id="details-modal" class="modal">
+	<div class="modal-card modal-wide">
+		<div class="modal-head">
+			<h2 id="details-title"></h2>
+			<button class="btn btn-ghost btn-sm" data-action="close-details">Close</button>
+		</div>
+		<div id="details-body"></div>
+	</div>
+</dialog>
+
+<!-- confirm dialog -->
+<dialog id="confirm-modal" class="modal">
+	<div class="modal-card">
+		<h2 id="confirm-title">Are you sure?</h2>
+		<p id="confirm-text" class="confirm-text"></p>
+		<div class="modal-foot">
+			<button class="btn btn-ghost" data-action="confirm-no">Cancel</button>
+			<button class="btn btn-danger" id="confirm-yes">Confirm</button>
+		</div>
+	</div>
+</dialog>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
